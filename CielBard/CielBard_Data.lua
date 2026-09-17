@@ -1,6 +1,6 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.2.0"
+CielBardData.Version = "0.3.0"
 CielBardData.BardJobID = 23
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
@@ -35,6 +35,11 @@ CielBardData.Actions = {
     BlastArrow = 25784,
     RadiantFinale = 25785,
 
+    SecondWind = 7541,
+    Troubadour = 7405,
+    NaturesMinne = 7408,
+    WardensPaean = 3561,
+
     HeartbreakShot = 36975,
     ResonantArrow = 36976,
     RadiantEncore = 36977,
@@ -59,12 +64,51 @@ CielBardData.GCD = {
 
 CielBardData.SelfTarget = {
     [101] = true, [107] = true, [118] = true, [25785] = true,
+    [7541] = true, [7405] = true, [7408] = true, [3561] = true,
 }
 
 CielBardData.Songs = {
     WM = { id = 3559, name = "The Wanderer's Minuet", next = "MB" },
     MB = { id = 114, name = "Mage's Ballad", next = "AP" },
     AP = { id = 116, name = "Army's Paeon", next = "WM" },
+}
+
+-- Every optional action is routed through this central capability table. The
+-- optimized defaults preserve the v0.2 behavior; utility automation is opt-in.
+CielBardData.AbilityDefaults = {
+    WanderersMinuet = true,
+    MagesBallad = true,
+    ArmysPaeon = true,
+
+    Stormbite = true,
+    CausticBite = true,
+    IronJaws = true,
+
+    RagingStrikes = true,
+    BattleVoice = true,
+    RadiantFinale = true,
+    Barrage = true,
+
+    RefulgentArrow = true,
+    ApexArrow = true,
+    BlastArrow = true,
+    PitchPerfect = true,
+    ResonantArrow = true,
+    RadiantEncore = true,
+
+    EmpyrealArrow = true,
+    Sidewinder = true,
+    HeartbreakShot = true,
+    Bloodletter = true,
+    RainOfDeath = true,
+
+    Ladonsbite = true,
+    Shadowbite = true,
+
+    SecondWind = false,
+    Troubadour = false,
+    NaturesMinne = false,
+    WardensPaean = false,
 }
 
 CielBardData.Defaults = {
@@ -76,6 +120,15 @@ CielBardData.Defaults = {
     pulseMs = 60,
     requestThrottleMs = 125,
     maxWeaves = 2,
+    executionMode = "FULL", -- FULL, GCD_ONLY, or OGCD_ONLY
+    requireLOS = true,
+
+    -- Normal users can ignore this switch and receive the optimized defaults.
+    -- Per-ability controls and alternate presets only apply when it is enabled.
+    advancedEnabled = false,
+    preset = "Optimized",
+    abilities = CielBardData.AbilityDefaults,
+    automaticSongCycle = true,
 
     autoTTK = true,
     manualTTK = 999,
@@ -83,6 +136,8 @@ CielBardData.Defaults = {
     minimumTTKConfidence = 0.50,
     terminalTTK = 20,
     idealKillMax = 30,
+    terminalDumping = true,
+    resourcePooling = true,
 
     dotRefreshSeconds = 3.0,
     dotMinimumTTK = 18,
@@ -98,6 +153,10 @@ CielBardData.Defaults = {
     apexOffcycleGauge = 90,
     apexHoldForBurstSeconds = 35,
 
+    secondWindHP = 45,
+    minneHP = 60,
+    troubadourHP = 70,
+
     -- MMOMinion exposes Player.gauge as an undocumented numeric array. These
     -- defaults match the conventional BRD layout but remain editable in-game.
     soulVoiceGaugeIndex = 4,
@@ -105,4 +164,30 @@ CielBardData.Defaults = {
     songTimerGaugeIndex = 3,
 
     debug = false,
+}
+
+-- Presets are deliberately small overrides applied on top of the optimized
+-- defaults. "Custom" is selected automatically after a manual change.
+CielBardData.Presets = {
+    Optimized = {},
+    Conservative = {
+        maxWeaves = 1,
+        snapshotIronJaws = false,
+        terminalDumping = false,
+        resourcePooling = false,
+    },
+    NoPartyBuffs = {
+        abilities = { BattleVoice = false, RadiantFinale = false },
+    },
+    NoDots = {
+        snapshotIronJaws = false,
+        abilities = { Stormbite = false, CausticBite = false, IronJaws = false },
+    },
+    SingleTarget = {
+        useAOE = false,
+        abilities = { RainOfDeath = false, Ladonsbite = false, Shadowbite = false },
+    },
+    GCDOnly = {
+        executionMode = "GCD_ONLY",
+    },
 }

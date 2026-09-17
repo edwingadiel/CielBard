@@ -8,6 +8,7 @@ __pycache__/
 bard-analysis/output/events/
 bard-analysis/output/luna/luna-summary.json
 bard-analysis/output/killtime/killtime.json
+bard-analysis/output/killtime/errors.json
 
 # Workspace-only references and attachments
 reference-ffxivminion/

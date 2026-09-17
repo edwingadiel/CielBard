@@ -2,7 +2,7 @@
 
 Ciel Bard is an experimental level-100 Bard rotation addon built from the top-40 Vamp Fatale FFLogs analysis. It executes a priority system rather than replaying a fixed sequence.
 
-Version 0.2.0 is a training-dummy MVP. Execution starts disabled and must be explicitly armed in the window.
+Version 0.3.0 is a training-dummy MVP. Execution starts disabled and must be explicitly armed in the window. The optimized setup remains the default; advanced customization is hidden behind one opt-in setting.
 
 ## What it implements
 
@@ -15,7 +15,26 @@ Version 0.2.0 is a training-dummy MVP. Execution starts disabled and must be exp
 - DoT maintenance and optional late-buff Iron Jaws snapshots.
 - Heartbreak Shot → Rain of Death replacement when cleave is profitable.
 - Rolling HP-slope time-to-kill estimation and `<20s`, `20–30s`, and longer-fight behavior.
+- Optional per-ability Auto/Off controls backed by a centralized capability layer.
+- Presets for optimized, conservative, no-party-buff, no-DoT, single-target, and GCD-only play.
+- Smart continuation when abilities are disabled, including manual DoT refreshes, legal reduced-song cycles, and a permanent Burst Shot → Heavy Shot fallback.
+- Opt-in Second Wind, Nature's Minne, Troubadour, and Warden's Paean rules.
 - An in-game diagnostic/configuration window.
+
+## Normal and advanced use
+
+Most users can leave **Advanced customization → Enable custom settings** off. In that state CielBard always uses the optimized action set, regardless of any old custom values saved in settings.
+
+Advanced mode exposes presets, Full/GCD-only/oGCD-only execution, pooling and terminal-dump policies, and Auto/Off controls for songs, DoTs, burst buffs, proc/gauge actions, damage oGCDs, AoE actions, and utility. Manual edits select the `Custom` preset. Invalid or ineffective combinations produce visible warnings and the priority engine continues with the best legal enabled action.
+
+The non-configurable emergency GCD chain is:
+
+1. Enabled proc or gauge GCD.
+2. Enabled DoT action when worthwhile.
+3. Burst Shot.
+4. Heavy Shot for level sync.
+
+Disabling Apex removes Apex pooling, disabling Iron Jaws switches enabled DoTs to individual refreshes, disabling party buffs removes holds that exist only for those buffs, and disabling songs constructs a cycle from whatever songs remain.
 
 ## Installation
 
@@ -36,6 +55,8 @@ Execution is disabled by default.
 - The addon starts Wanderer's, then changes to Mage's and Army's at the configured thresholds.
 - No GCD pauses occur while the target is valid and in range.
 - Refulgent is consumed before Barrage when already available.
+- Disabling an action under **Advanced customization** causes the engine to skip it without pausing the GCD.
+- The preset buttons restore a complete, deterministic configuration before applying their overrides.
 - Apex is not held so long that it overcaps Soul Voice.
 - Rain of Death replaces Heartbreak only when the configured nearby-target count is met.
 - The TTK estimate stabilizes after several seconds of continuous boss damage.
@@ -46,7 +67,8 @@ Execution is disabled by default.
 
 - MMOMinion's public documentation does not define the modern Bard gauge array. Gauge indexes are therefore configurable and visibly inspectable.
 - The TTK estimator is deliberately conservative and can be distorted by phase transitions, invulnerability, shields, or add targeting. Use manual TTK when testing encounter-specific endings.
-- Automatic potion use is not included in v0.1 because inventory HQ/NQ item resolution should be validated on the live client first.
+- Automatic potion use is not included because inventory HQ/NQ item resolution should be validated on the live client first.
+- Utility automation is opt-in. Warden's Paean debuff detection and the defensive HP thresholds require live-client validation before duty use.
 - This version has passed offline Lua parsing and MMOMinion API/reference checks, but has not yet been validated inside a live MMOMinion client. Treat it as a testable MVP, begin on a training dummy, and keep execution disabled until gauge diagnostics and song detection are correct.
 - Third-party automation may violate game rules or account terms. Use at your own risk.
 
@@ -56,3 +78,14 @@ Execution is disabled by default.
 - MMOMinion GUI API: https://wiki.mmominion.com/doku.php?id=gui_api
 - MinionLib: https://wiki.mmominion.com/doku.php?id=minionlib
 - FFXIVMinion reference module: https://github.com/MINIONBOTS/FFXIVMinion
+
+## Offline tests
+
+From the repository root:
+
+```bash
+python -m pip install -r tests/requirements.txt
+python tests/run_mock_tests.py
+```
+
+The suite parses every Lua source file and checks advanced-mode invariants including Apex Off, all songs Off, Iron Jaws Off, no DoTs, Heavy Shot fallback, and GCD-only execution.

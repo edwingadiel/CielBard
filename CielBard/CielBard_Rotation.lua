@@ -16,6 +16,8 @@ E.state = {
     ragingAt = 0,
     battleVoiceAt = 0,
     radiantFinaleAt = 0,
+    lastBurstActionID = 0,
+    lastBurstActionAt = 0,
     lastActionName = "Idle",
     lastDecision = "Disabled",
     currentSong = "NONE",
@@ -109,6 +111,98 @@ local function distance3(a, b)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function abilityDefault(key)
+    return D.AbilityDefaults[key] ~= false
+end
+
+function E.AbilityEnabled(key)
+    local c = E.config or D.Defaults
+    if not c.advancedEnabled then return abilityDefault(key) end
+    local abilities = c.abilities or {}
+    if abilities[key] == nil then return abilityDefault(key) end
+    return abilities[key] ~= false
+end
+
+function E.GetConfigurationWarnings()
+    local warnings = {}
+    local c = E.config or D.Defaults
+    if not c.advancedEnabled then return warnings end
+    local enabled = E.AbilityEnabled
+    if not enabled("WanderersMinuet") and not enabled("MagesBallad") and not enabled("ArmysPaeon") then
+        table.insert(warnings, "All songs are Off; song automation will safely do nothing.")
+    end
+    if enabled("BlastArrow") and not enabled("ApexArrow") then
+        table.insert(warnings, "Blast Arrow cannot normally be generated while Apex Arrow is Off.")
+    end
+    if enabled("ResonantArrow") and not enabled("Barrage") then
+        table.insert(warnings, "Resonant Arrow cannot normally be generated while Barrage is Off.")
+    end
+    if enabled("RadiantEncore") and not enabled("RadiantFinale") then
+        table.insert(warnings, "Radiant Encore cannot normally be generated while Radiant Finale is Off.")
+    end
+    if enabled("IronJaws") and (not enabled("Stormbite") or not enabled("CausticBite")) then
+        table.insert(warnings, "Iron Jaws requires both DoTs; it will be skipped until both are active.")
+    end
+    if c.executionMode == "OGCD_ONLY" then
+        table.insert(warnings, "oGCD-only mode expects you or another system to keep the GCD rolling.")
+    end
+    return warnings
+end
+
+local function majorBurstEnabled()
+    return E.AbilityEnabled("RagingStrikes") or E.AbilityEnabled("BattleVoice") or E.AbilityEnabled("RadiantFinale")
+end
+
+local function startOrUpdateBurst(actionID, ticks)
+    local s = E.state
+    if s.lastBurstActionID == actionID and ticks - s.lastBurstActionAt < 1000 then return end
+    s.lastBurstActionID, s.lastBurstActionAt = actionID, ticks
+    local expired = s.ragingAt == 0 or ticks - s.ragingAt > 20500
+    if actionID == A.RagingStrikes then
+        s.ragingAt = ticks
+        s.gcdsSinceRaging = 0
+        s.battleVoiceAt = 0
+        s.radiantFinaleAt = 0
+    elseif actionID == A.BattleVoice then
+        if expired then s.ragingAt, s.gcdsSinceRaging = ticks, 1 end
+        s.battleVoiceAt = ticks
+    elseif actionID == A.RadiantFinale then
+        if expired then s.ragingAt, s.gcdsSinceRaging = ticks, 1 end
+        s.radiantFinaleAt = ticks
+    end
+end
+
+local function nextBurstSeconds()
+    if not majorBurstEnabled() then return 999, false end
+    local best = 999
+    local candidates = {
+        { "RagingStrikes", A.RagingStrikes },
+        { "BattleVoice", A.BattleVoice },
+        { "RadiantFinale", A.RadiantFinale },
+    }
+    for _, candidate in ipairs(candidates) do
+        if E.AbilityEnabled(candidate[1]) then
+            if ready(candidate[2], Player.id) then return 0, true end
+            best = math.min(best, cooldownSeconds(action(candidate[2])))
+        end
+    end
+    return best, true
+end
+
+local function songEnabled(key)
+    local names = { WM = "WanderersMinuet", MB = "MagesBallad", AP = "ArmysPaeon" }
+    return names[key] and E.AbilityEnabled(names[key])
+end
+
+local function nextEnabledSong(current)
+    local key = current == "NONE" and "WM" or D.Songs[current].next
+    for _ = 1, 3 do
+        if songEnabled(key) then return key end
+        key = D.Songs[key].next
+    end
+    return nil
+end
+
 function E.Init(config)
     E.config = config
     E.ResetCombat("Initialized")
@@ -121,6 +215,8 @@ function E.ResetCombat(reason)
     s.ragingAt = 0
     s.battleVoiceAt = 0
     s.radiantFinaleAt = 0
+    s.lastBurstActionID = 0
+    s.lastBurstActionAt = 0
     s.currentSong = "NONE"
     s.songRemaining = 0
     s.songStartedAt = 0
@@ -230,15 +326,8 @@ function E.ObserveLastCast()
     else
         s.weavesSinceGCD = s.weavesSinceGCD + 1
     end
-    if castID == A.RagingStrikes then
-        s.ragingAt = now()
-        s.gcdsSinceRaging = 0
-        s.battleVoiceAt = 0
-        s.radiantFinaleAt = 0
-    elseif castID == A.BattleVoice then
-        s.battleVoiceAt = now()
-    elseif castID == A.RadiantFinale then
-        s.radiantFinaleAt = now()
+    if castID == A.RagingStrikes or castID == A.BattleVoice or castID == A.RadiantFinale then
+        startOrUpdateBurst(castID, now())
     end
     local songKey = songKeyForAction(castID)
     if songKey then
@@ -291,6 +380,9 @@ function E.TryCast(actionID, target, decision)
             s.currentSong = songKey
             s.songStartedAt = ticks
         end
+        if actionID == A.RagingStrikes or actionID == A.BattleVoice or actionID == A.RadiantFinale then
+            startOrUpdateBurst(actionID, ticks)
+        end
         return true
     end
     return false
@@ -301,8 +393,7 @@ function E.BuildContext(target)
     local song, songRemaining = E.GetSong()
     s.currentSong, s.songRemaining = song, songRemaining
     local storm, caustic = E.GetDotState(target)
-    local raging = action(A.RagingStrikes)
-    local nextBurst = ready(A.RagingStrikes, Player.id) and 0 or cooldownSeconds(raging)
+    local nextBurst, burstConfigured = nextBurstSeconds()
     local burstElapsed = s.ragingAt > 0 and (now() - s.ragingAt) / 1000 or 999
     local burstActive = burstElapsed <= 20.5
     local learnedTTK = s.ttk
@@ -322,7 +413,7 @@ function E.BuildContext(target)
     return {
         target = target,
         ttk = ttk,
-        terminal = ttk <= c.terminalTTK,
+        terminal = c.terminalDumping and ttk <= c.terminalTTK,
         idealFinish = ttk > c.terminalTTK and ttk <= c.idealKillMax,
         enemies = s.enemyCount,
         aoe = c.useAOE and s.enemyCount >= c.minAOETargets,
@@ -333,6 +424,9 @@ function E.BuildContext(target)
         nextBurst = nextBurst,
         burstElapsed = burstElapsed,
         burstActive = burstActive,
+        burstConfigured = burstConfigured,
+        dotsReady = (not E.AbilityEnabled("Stormbite") or storm > 5) and
+            (not E.AbilityEnabled("CausticBite") or caustic > 5),
         ttkBand = band,
         soulVoice = E.GetSoulVoice(),
         repertoire = E.GetRepertoire(),
@@ -340,14 +434,21 @@ function E.BuildContext(target)
 end
 
 function E.TrySong(ctx)
+    if not E.config.automaticSongCycle then return false end
+    local nextKey = nextEnabledSong(ctx.song)
+    if not nextKey then return false end
     if ctx.song == "NONE" then
-        return E.TryCast(A.WanderersMinuet, ctx.target, "Start Wanderer's Minuet")
-    elseif ctx.song == "WM" and ctx.songRemaining <= E.config.wmSwapRemaining then
-        return E.TryCast(A.MagesBallad, ctx.target, "WM -> MB at empirical timing")
-    elseif ctx.song == "MB" and ctx.songRemaining <= E.config.mbSwapRemaining then
-        return E.TryCast(A.ArmysPaeon, ctx.target, "MB -> AP at empirical timing")
-    elseif ctx.song == "AP" and ctx.songRemaining <= E.config.apSwapRemaining then
-        return E.TryCast(A.WanderersMinuet, ctx.target, "Clip AP -> WM for 2m alignment")
+        return E.TryCast(D.Songs[nextKey].id, ctx.target, "Start " .. D.Songs[nextKey].name)
+    end
+    local thresholds = {
+        WM = E.config.wmSwapRemaining,
+        MB = E.config.mbSwapRemaining,
+        AP = E.config.apSwapRemaining,
+    }
+    local shouldSwap = not songEnabled(ctx.song) or ctx.songRemaining <= (thresholds[ctx.song] or 1)
+    if shouldSwap and (nextKey ~= ctx.song or ctx.songRemaining <= 0.2) then
+        return E.TryCast(D.Songs[nextKey].id, ctx.target,
+            ctx.song .. " -> " .. nextKey .. " using enabled-song cycle")
     end
     return false
 end
@@ -355,90 +456,180 @@ end
 function E.TryGCD(ctx)
     local target, c = ctx.target, E.config
 
-    -- Always establish both DoTs on the primary target when it will live.
+    -- Establish only the enabled DoTs. If Iron Jaws is Off (or one DoT is
+    -- disabled), each enabled DoT is refreshed manually instead.
     if ctx.ttk > c.dotMinimumTTK then
-        if ctx.storm <= 0.2 and E.TryCast(A.Stormbite, target, "Apply Stormbite") then return true end
-        if ctx.caustic <= 0.2 and E.TryCast(A.CausticBite, target, "Apply Caustic Bite") then return true end
+        if E.AbilityEnabled("Stormbite") and ctx.storm <= 0.2 and
+            (E.TryCast(A.Stormbite, target, "Apply Stormbite") or
+             E.TryCast(A.Windbite, target, "Apply Windbite fallback")) then return true end
+        if E.AbilityEnabled("CausticBite") and ctx.caustic <= 0.2 and
+            (E.TryCast(A.CausticBite, target, "Apply Caustic Bite") or
+             E.TryCast(A.VenomousBite, target, "Apply Venomous Bite fallback")) then return true end
     end
 
     -- Transformed/proc actions are identified by MMOMinion's IsReady state.
-    if ready(A.BlastArrow, target.id) and E.TryCast(A.BlastArrow, target, "Consume Blast Arrow") then return true end
-    if ready(A.ResonantArrow, target.id) and E.TryCast(A.ResonantArrow, target, "Consume Resonant Arrow") then return true end
-    if ready(A.RadiantEncore, target.id) and (ctx.burstActive or ctx.terminal) and
+    if E.AbilityEnabled("BlastArrow") and ready(A.BlastArrow, target.id) and
+        E.TryCast(A.BlastArrow, target, "Consume Blast Arrow") then return true end
+    if E.AbilityEnabled("ResonantArrow") and ready(A.ResonantArrow, target.id) and
+        E.TryCast(A.ResonantArrow, target, "Consume Resonant Arrow") then return true end
+    if E.AbilityEnabled("RadiantEncore") and ready(A.RadiantEncore, target.id) and
+        (ctx.burstActive or ctx.terminal) and
         E.TryCast(A.RadiantEncore, target, "Radiant Encore in buffs") then return true end
 
-    local apexThreshold = c.apexOffcycleGauge
-    if ctx.burstActive then apexThreshold = c.apexBurstGauge end
-    if ctx.terminal then apexThreshold = 20 end
-    local shouldApex = ctx.soulVoice >= apexThreshold
-    if not ctx.burstActive and not ctx.terminal and ctx.nextBurst <= c.apexHoldForBurstSeconds and ctx.soulVoice < 95 then
-        shouldApex = false
+    if E.AbilityEnabled("ApexArrow") then
+        local apexThreshold = c.apexOffcycleGauge
+        if ctx.burstActive then apexThreshold = c.apexBurstGauge end
+        if ctx.terminal then apexThreshold = 20 end
+        local shouldApex = ctx.soulVoice >= apexThreshold
+        if c.resourcePooling and ctx.burstConfigured and not ctx.burstActive and not ctx.terminal and
+            ctx.nextBurst <= c.apexHoldForBurstSeconds and ctx.soulVoice < 95 then
+            shouldApex = false
+        end
+        if shouldApex and E.TryCast(A.ApexArrow, target,
+            "Apex Arrow at " .. tostring(ctx.soulVoice) .. " gauge") then return true end
     end
-    if shouldApex and E.TryCast(A.ApexArrow, target, "Apex Arrow at " .. tostring(ctx.soulVoice) .. " gauge") then return true end
 
     -- Snapshot late in buffs only when enough lifetime remains; otherwise use
     -- the ordinary near-expiration refresh.
-    if c.snapshotIronJaws and ctx.burstActive and ctx.burstElapsed >= 15 and ctx.ttk > c.dotMinimumTTK and
+    local ironJawsEnabled = E.AbilityEnabled("IronJaws") and
+        E.AbilityEnabled("Stormbite") and E.AbilityEnabled("CausticBite")
+    if ironJawsEnabled and c.snapshotIronJaws and ctx.burstActive and ctx.burstElapsed >= 15 and
+        ctx.ttk > c.dotMinimumTTK and
         math.min(ctx.storm, ctx.caustic) < 22 and
         E.TryCast(A.IronJaws, target, "Late-buff Iron Jaws snapshot") then return true end
-    if ctx.ttk > c.dotMinimumTTK and math.min(ctx.storm, ctx.caustic) <= c.dotRefreshSeconds and
+    if ironJawsEnabled and ctx.ttk > c.dotMinimumTTK and
+        math.min(ctx.storm, ctx.caustic) <= c.dotRefreshSeconds and
         E.TryCast(A.IronJaws, target, "Refresh both DoTs") then return true end
+    if not ironJawsEnabled and ctx.ttk > c.dotMinimumTTK then
+        if E.AbilityEnabled("Stormbite") and ctx.storm <= c.dotRefreshSeconds and
+            (E.TryCast(A.Stormbite, target, "Manual Stormbite refresh") or
+             E.TryCast(A.Windbite, target, "Manual Windbite refresh")) then return true end
+        if E.AbilityEnabled("CausticBite") and ctx.caustic <= c.dotRefreshSeconds and
+            (E.TryCast(A.CausticBite, target, "Manual Caustic Bite refresh") or
+             E.TryCast(A.VenomousBite, target, "Manual Venomous Bite refresh")) then return true end
+    end
 
-    if ready(A.RadiantEncore, target.id) and E.TryCast(A.RadiantEncore, target, "Consume Radiant Encore") then return true end
-    if ready(A.RefulgentArrow, target.id) and E.TryCast(A.RefulgentArrow, target, "Consume Refulgent Arrow") then return true end
+    if E.AbilityEnabled("RadiantEncore") and ready(A.RadiantEncore, target.id) and
+        E.TryCast(A.RadiantEncore, target, "Consume Radiant Encore") then return true end
+    if E.AbilityEnabled("RefulgentArrow") and ready(A.RefulgentArrow, target.id) and
+        E.TryCast(A.RefulgentArrow, target, "Consume Refulgent Arrow") then return true end
 
     if ctx.aoe then
-        if ready(A.Shadowbite, target.id) and E.TryCast(A.Shadowbite, target, "Shadowbite cleave") then return true end
-        if E.TryCast(A.Ladonsbite, target, "Ladonsbite cleave") then return true end
+        if E.AbilityEnabled("Shadowbite") and ready(A.Shadowbite, target.id) and
+            E.TryCast(A.Shadowbite, target, "Shadowbite cleave") then return true end
+        if E.AbilityEnabled("Ladonsbite") and
+            (E.TryCast(A.Ladonsbite, target, "Ladonsbite cleave") or
+             E.TryCast(A.QuickNock, target, "Quick Nock fallback")) then return true end
     end
-    return E.TryCast(A.BurstShot, target, "Burst Shot filler")
+    -- Non-configurable emergency filler: custom settings must never stall the
+    -- GCD merely because every optional action was switched Off.
+    if E.TryCast(A.BurstShot, target, "Burst Shot emergency filler") then return true end
+    return E.TryCast(A.HeavyShot, target, "Heavy Shot level-sync fallback")
+end
+
+local function chargeActions(ctx)
+    local result = {}
+    if ctx.aoe and E.AbilityEnabled("RainOfDeath") then table.insert(result, A.RainOfDeath) end
+    if E.AbilityEnabled("HeartbreakShot") then table.insert(result, A.HeartbreakShot) end
+    if E.AbilityEnabled("Bloodletter") then table.insert(result, A.Bloodletter) end
+    return result
+end
+
+local function tryCharge(ctx, decision)
+    for _, actionID in ipairs(chargeActions(ctx)) do
+        if E.TryCast(actionID, ctx.target, decision) then return true end
+    end
+    return false
+end
+
+local function chargeCooldown(ctx)
+    local best = 999
+    for _, actionID in ipairs(chargeActions(ctx)) do
+        best = math.min(best, cooldownSeconds(action(actionID)))
+    end
+    return best
+end
+
+local function hasDispellableDebuff(entity)
+    if not entity or not valid(entity.buffs) then return false end
+    for _, buff in pairs(entity.buffs) do
+        if buff and (buff.dispellable == true or buff.canDispel == true or buff.candispel == true) then
+            return true
+        end
+    end
+    return false
+end
+
+function E.TryUtility(ctx)
+    local hp = Player and Player.hp and tonumber(Player.hp.percent) or 100
+    if E.AbilityEnabled("SecondWind") and hp <= E.config.secondWindHP and
+        E.TryCast(A.SecondWind, ctx.target, "Second Wind emergency heal") then return true end
+    if E.AbilityEnabled("WardensPaean") and hasDispellableDebuff(Player) and
+        E.TryCast(A.WardensPaean, ctx.target, "Warden's Paean dispel") then return true end
+    if E.AbilityEnabled("NaturesMinne") and hp <= E.config.minneHP and
+        E.TryCast(A.NaturesMinne, ctx.target, "Nature's Minne self-support") then return true end
+    if E.AbilityEnabled("Troubadour") and hp <= E.config.troubadourHP and
+        E.TryCast(A.Troubadour, ctx.target, "Troubadour defensive") then return true end
+    return false
+end
+
+local function tryStartBurst(ctx)
+    if E.AbilityEnabled("RagingStrikes") and
+        E.TryCast(A.RagingStrikes, ctx.target, "Begin burst with Raging Strikes") then return true end
+    if E.AbilityEnabled("BattleVoice") and
+        E.TryCast(A.BattleVoice, ctx.target, "Begin burst with Battle Voice") then return true end
+    if E.AbilityEnabled("RadiantFinale") and
+        E.TryCast(A.RadiantFinale, ctx.target, "Begin burst with Radiant Finale") then return true end
+    return false
 end
 
 function E.TryOGCD(ctx)
     local s, c, target = E.state, E.config, ctx.target
     if s.weavesSinceGCD >= c.maxWeaves then return false end
 
+    if E.TryUtility(ctx) then return true end
     if E.TrySong(ctx) then return true end
 
-    -- Start two-minute burst only after both DoTs exist and Wanderer's is active.
-    if ctx.nextBurst <= 0.1 and (ctx.song == "WM" or ctx.terminal or ctx.idealFinish) and
-        (ctx.terminal or math.min(ctx.storm, ctx.caustic) > 5) and
-        E.TryCast(A.RagingStrikes, target, "Begin two-minute burst") then return true end
+    local songReady = ctx.song == "WM" or ctx.terminal or ctx.idealFinish or
+        not c.automaticSongCycle or not E.AbilityEnabled("WanderersMinuet")
+    if ctx.burstConfigured and ctx.nextBurst <= 0.1 and songReady and
+        (ctx.terminal or ctx.dotsReady) and tryStartBurst(ctx) then return true end
 
     if ctx.burstActive then
-        -- The standard opener uses one filler weave after Raging, then places
-        -- Battle Voice + Radiant Finale after the following GCD.
-        if s.gcdsSinceRaging == 0 then
-            local chargeAction = ctx.aoe and A.RainOfDeath or A.HeartbreakShot
-            if E.TryCast(chargeAction, target, "Pre-party-buff charge weave") then return true end
-            return false
-        end
-        if E.TryCast(A.BattleVoice, target, "Battle Voice") then return true end
-        if E.TryCast(A.RadiantFinale, target, "Radiant Finale") then return true end
+        -- Preserve the optimized filler weave after Raging when an enabled
+        -- charge spender exists; otherwise continue directly to party buffs.
+        if s.gcdsSinceRaging == 0 and E.AbilityEnabled("RagingStrikes") and
+            tryCharge(ctx, "Pre-party-buff charge weave") then return true end
 
-        -- Consume an existing Refulgent before Barrage; the GCD priority does
-        -- that naturally, so Barrage waits while Refulgent is currently ready.
-        if not highlighted(A.RefulgentArrow) and E.TryCast(A.Barrage, target, "Barrage after clearing proc") then return true end
+        if E.AbilityEnabled("BattleVoice") and
+            E.TryCast(A.BattleVoice, target, "Battle Voice") then return true end
+        if E.AbilityEnabled("RadiantFinale") and
+            E.TryCast(A.RadiantFinale, target, "Radiant Finale") then return true end
 
-        local repertoire = ctx.repertoire
-        if (repertoire >= 3 or (ctx.song == "WM" and ctx.songRemaining <= 3) or ctx.terminal) and
+        local mayBarrage = not E.AbilityEnabled("RefulgentArrow") or not highlighted(A.RefulgentArrow)
+        if E.AbilityEnabled("Barrage") and mayBarrage and
+            E.TryCast(A.Barrage, target, "Barrage after clearing enabled proc") then return true end
+
+        if E.AbilityEnabled("PitchPerfect") and
+            (ctx.repertoire >= 3 or (ctx.song == "WM" and ctx.songRemaining <= 3) or ctx.terminal) and
             E.TryCast(A.PitchPerfect, target, "Pitch Perfect stack dump") then return true end
-        if E.TryCast(A.EmpyrealArrow, target, "Empyreal Arrow inside buffs") then return true end
-        if E.TryCast(A.Sidewinder, target, "Sidewinder inside buffs") then return true end
-        local chargeAction = ctx.aoe and A.RainOfDeath or A.HeartbreakShot
-        if E.TryCast(chargeAction, target, ctx.aoe and "Rain of Death cleave" or "Heartbreak Shot in buffs") then return true end
+        if E.AbilityEnabled("EmpyrealArrow") and
+            E.TryCast(A.EmpyrealArrow, target, "Empyreal Arrow inside buffs") then return true end
+        if E.AbilityEnabled("Sidewinder") and
+            E.TryCast(A.Sidewinder, target, "Sidewinder inside buffs") then return true end
+        if tryCharge(ctx, ctx.aoe and "Enabled charge spender in cleave" or "Enabled charge spender in buffs") then return true end
     else
-        if (ctx.song == "WM" and (ctx.repertoire >= 3 or ctx.songRemaining <= 3)) and
+        if E.AbilityEnabled("PitchPerfect") and ctx.song == "WM" and
+            (ctx.repertoire >= 3 or ctx.songRemaining <= 3) and
             E.TryCast(A.PitchPerfect, target, "Pitch Perfect before overcap/song end") then return true end
 
-        -- Hold a ready Empyreal Arrow only for the last few seconds before the
-        -- burst, allowing two uses inside the upcoming 20-second window.
-        if (ctx.nextBurst > 5 or ctx.terminal) and E.TryCast(A.EmpyrealArrow, target, "Empyreal Arrow on cooldown") then return true end
+        local holdEmpyreal = c.resourcePooling and ctx.burstConfigured and ctx.nextBurst <= 5 and not ctx.terminal
+        if E.AbilityEnabled("EmpyrealArrow") and not holdEmpyreal and
+            E.TryCast(A.EmpyrealArrow, target, "Empyreal Arrow on cooldown") then return true end
 
-        local chargeAction = ctx.aoe and A.RainOfDeath or A.HeartbreakShot
-        local charge = action(chargeAction)
-        if (ctx.nextBurst > 15 or ctx.terminal) and cooldownSeconds(charge) <= 1.5 and
-            E.TryCast(chargeAction, target, ctx.aoe and "Rain of Death near charge cap" or "Heartbreak near charge cap") then return true end
+        local holdCharge = c.resourcePooling and ctx.burstConfigured and ctx.nextBurst <= 15 and not ctx.terminal
+        if not holdCharge and chargeCooldown(ctx) <= 1.5 and
+            tryCharge(ctx, ctx.aoe and "AoE charge near cap" or "Single-target charge near cap") then return true end
     end
     return false
 end
@@ -461,6 +652,7 @@ function E.OnUpdate()
     local target = E.GetTarget()
     if not target then s.lastDecision = "No valid target" return end
     if tonumber(target.distance2d) and target.distance2d > 25 then s.lastDecision = "Target out of range" return end
+    if c.requireLOS and target.los == false then s.lastDecision = "Target not in line of sight" return end
     if ActionList and type(ActionList.IsCasting) == "function" and ActionList:IsCasting() then return end
 
     E.ObserveLastCast()
@@ -470,9 +662,12 @@ function E.OnUpdate()
 
     -- When the GCD is available, it always wins. This encodes the strongest
     -- empirical finding: top players gained GCDs, not extra total button presses.
-    if ready(A.BurstShot, target.id) or ready(A.Stormbite, target.id) then
-        E.TryGCD(ctx)
-    else
+    local gcdReady = ready(A.BurstShot, target.id) or ready(A.Stormbite, target.id) or
+        ready(A.HeavyShot, target.id)
+    local mode = c.advancedEnabled and c.executionMode or "FULL"
+    if gcdReady then
+        if mode == "OGCD_ONLY" then E.TryOGCD(ctx) else E.TryGCD(ctx) end
+    elseif mode ~= "GCD_ONLY" then
         E.TryOGCD(ctx)
     end
 end
