@@ -1,0 +1,41 @@
+config,scope,reason,seconds_per_fight,share_pct
+shipped,all,holdEmpyreal pre-burst hold,42.57,68.8
+shipped,burst,anim-lock,14.39,23.2
+shipped,burst,clip-guard weaveMinGcdRemaining,3.39,5.5
+shipped,open,anim-lock,0.63,1.0
+shipped,burst,gcd-window (GCD wins),0.28,0.5
+shipped,burst,weave-cap maxWeaves,0.23,0.4
+shipped,burst,other-oGCD RadiantFinale,0.13,0.2
+shipped,burst,other-oGCD RagingStrikes,0.12,0.2
+shipped,burst,unexplained,0.06,0.1
+shipped,open,clip-guard weaveMinGcdRemaining,0.05,0.1
+shipped,open,other-oGCD HeartbreakShot,0.03,0.0
+shipped,burst,other-oGCD BattleVoice,0.02,0.0
+shipped,all,requestThrottleMs,0.00,0.0
+shipped,all,engine pulse cadence,0.00,0.0
+shipped,all,TOTAL,61.91,100.0
+resourcePooling=false,burst,anim-lock,7.61,51.8
+resourcePooling=false,open,anim-lock,3.26,22.2
+resourcePooling=false,burst,clip-guard weaveMinGcdRemaining,2.44,16.6
+resourcePooling=false,open,clip-guard weaveMinGcdRemaining,0.72,4.9
+resourcePooling=false,burst,gcd-window (GCD wins),0.18,1.2
+resourcePooling=false,open,gcd-window (GCD wins),0.14,1.0
+resourcePooling=false,burst,weave-cap maxWeaves,0.12,0.8
+resourcePooling=false,burst,unexplained,0.06,0.4
+resourcePooling=false,burst,other-oGCD RadiantFinale,0.05,0.3
+resourcePooling=false,open,other-oGCD HeartbreakShot,0.04,0.2
+resourcePooling=false,open,other-oGCD WanderersMinuet,0.03,0.2
+resourcePooling=false,burst,other-oGCD RagingStrikes,0.03,0.2
+resourcePooling=false,all,TOTAL,14.71,100.0
+advancedEnabled+RadiantFinale disabled,burst,anim-lock,7.94,57.6
+advancedEnabled+RadiantFinale disabled,burst,clip-guard weaveMinGcdRemaining,1.86,13.5
+advancedEnabled+RadiantFinale disabled,open,anim-lock,1.49,10.8
+advancedEnabled+RadiantFinale disabled,all,holdEmpyreal pre-burst hold,1.33,9.7
+advancedEnabled+RadiantFinale disabled,open,clip-guard weaveMinGcdRemaining,0.67,4.9
+advancedEnabled+RadiantFinale disabled,burst,gcd-window (GCD wins),0.19,1.3
+advancedEnabled+RadiantFinale disabled,burst,weave-cap maxWeaves,0.11,0.8
+advancedEnabled+RadiantFinale disabled,burst,unexplained,0.05,0.3
+advancedEnabled+RadiantFinale disabled,burst,other-oGCD Barrage,0.04,0.3
+advancedEnabled+RadiantFinale disabled,open,gcd-window (GCD wins),0.04,0.3
+advancedEnabled+RadiantFinale disabled,burst,other-oGCD RagingStrikes,0.03,0.3
+advancedEnabled+RadiantFinale disabled,all,TOTAL,13.77,100.0

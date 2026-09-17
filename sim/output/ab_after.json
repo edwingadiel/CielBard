@@ -1,0 +1,39 @@
+{
+  "action_counts_mean": {
+    "ApexArrow": 9.08,
+    "ArmysPaeon": 3.97,
+    "Barrage": 5.0,
+    "BattleVoice": 5.0,
+    "BlastArrow": 9.045,
+    "BurstShot": 121.435,
+    "CausticBite": 1.365,
+    "EmpyrealArrow": 33.285,
+    "HeartbreakShot": 63.79,
+    "IronJaws": 11.605,
+    "MagesBallad": 3.97,
+    "PitchPerfect": 21.98,
+    "RadiantEncore": 5.0,
+    "RadiantFinale": 5.0,
+    "RagingStrikes": 5.0,
+    "RefulgentArrow": 50.835,
+    "ResonantArrow": 5.0,
+    "Sidewinder": 5.0,
+    "Stormbite": 1.365,
+    "WanderersMinuet": 5.0
+  },
+  "crit_rate_mean": 0.254194,
+  "dh_rate_mean": 0.286448,
+  "dot_uptime_mean": {
+    "CausticBite": 0.993362,
+    "Stormbite": 0.999791
+  },
+  "dps_mean": 26073.743127,
+  "dps_p05": 25428.515621,
+  "dps_p50": 26088.818615,
+  "dps_p95": 26852.830256,
+  "dps_stdev": 433.500133,
+  "gcd_mean": 214.73,
+  "n": 200,
+  "rejections_total": 0,
+  "seconds": 510.0
+}

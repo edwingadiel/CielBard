@@ -1,0 +1,357 @@
+{
+  "HeavyShot": {
+    "id": 97,
+    "name": "Heavy Shot",
+    "kind": "gcd",
+    "potency": 160,
+    "recast_s": 2.5,
+    "multi_hit_eligible": true,
+    "grants": [{"status": "HawksEye", "chance": 0.35}],
+    "notes": "Level-sync fallback only; trait-upgraded to Burst Shot at 76. Never expected at level 100."
+  },
+  "BurstShot": {
+    "id": 16495,
+    "name": "Burst Shot",
+    "kind": "gcd",
+    "potency": 220,
+    "recast_s": 2.5,
+    "multi_hit_eligible": true,
+    "grants": [{"status": "HawksEye", "chance": 0.35}],
+    "notes": "Filler GCD; 35 percent Hawk's Eye. Barrage-eligible."
+  },
+  "RefulgentArrow": {
+    "id": 7409,
+    "name": "Refulgent Arrow",
+    "kind": "gcd",
+    "potency": 280,
+    "recast_s": 2.5,
+    "multi_hit_eligible": true,
+    "requires": ["HawksEye"],
+    "notes": "Consumes Hawk's Eye. Barrage-eligible: under Barrage it lands three times (840)."
+  },
+  "Stormbite": {
+    "id": 7407,
+    "name": "Stormbite",
+    "kind": "gcd",
+    "potency": 100,
+    "recast_s": 2.5,
+    "grants": [
+      {"status": "Stormbite"},
+      {"status": "HawksEye", "chance": 0.35}
+    ],
+    "status_gained_id": 1201,
+    "notes": "Applies the Stormbite DoT (25 potency per 3 s tick, 45 s)."
+  },
+  "CausticBite": {
+    "id": 7406,
+    "name": "Caustic Bite",
+    "kind": "gcd",
+    "potency": 150,
+    "recast_s": 2.5,
+    "grants": [
+      {"status": "CausticBite"},
+      {"status": "HawksEye", "chance": 0.35}
+    ],
+    "status_gained_id": 1200,
+    "notes": "Applies the Caustic Bite DoT (20 potency per 3 s tick, 45 s)."
+  },
+  "IronJaws": {
+    "id": 3560,
+    "name": "Iron Jaws",
+    "kind": "gcd",
+    "potency": 100,
+    "recast_s": 2.5,
+    "grants": [{"status": "HawksEye", "chance": 0.35}],
+    "notes": "Refreshes and re-snapshots the DoTs already on the target; it never applies a missing one, so on a clean target it is a bare 100-potency GCD. The refresh is performed by Simulation._iron_jaws, not by grants."
+  },
+  "ApexArrow": {
+    "id": 16496,
+    "name": "Apex Arrow",
+    "kind": "gcd",
+    "potency": 0,
+    "recast_s": 2.5,
+    "grants": [{"status": "BlastArrowReady"}],
+    "notes": "Potency scales with Soul Voice; see job.apex and tables.apex_potency. The BlastArrowReady grant applies only when the gauge spent was at least job.apex.blast_gauge_threshold; the core gates it."
+  },
+  "BlastArrow": {
+    "id": 25784,
+    "name": "Blast Arrow",
+    "kind": "gcd",
+    "potency": 600,
+    "recast_s": 2.5,
+    "requires": ["BlastArrowReady"],
+    "notes": "Follow-up to a high-gauge Apex Arrow."
+  },
+  "ResonantArrow": {
+    "id": 36976,
+    "name": "Resonant Arrow",
+    "kind": "gcd",
+    "potency": 600,
+    "recast_s": 2.5,
+    "aoe": true,
+    "falloff": 0.45,
+    "requires": ["ResonantArrowReady"],
+    "notes": "Barrage follow-up. 55 percent falloff, so a secondary target takes a 0.45 damage share."
+  },
+  "RadiantEncore": {
+    "id": 36977,
+    "name": "Radiant Encore",
+    "kind": "gcd",
+    "potency": 0,
+    "recast_s": 2.5,
+    "requires": ["RadiantEncoreReady"],
+    "notes": "Potency 700/800/1100 by the coda count consumed by the Finale that granted it; see job.radiant_encore_potency."
+  },
+  "Ladonsbite": {
+    "id": 25783,
+    "name": "Ladonsbite",
+    "kind": "gcd",
+    "potency": 140,
+    "recast_s": 2.5,
+    "aoe": true,
+    "multi_hit_eligible": true,
+    "grants": [{"status": "HawksEye", "chance": 0.35}],
+    "notes": "AoE cone, 140 potency per target. Barrage-eligible."
+  },
+  "Shadowbite": {
+    "id": 16494,
+    "name": "Shadowbite",
+    "kind": "gcd",
+    "potency": 200,
+    "recast_s": 2.5,
+    "aoe": true,
+    "multi_hit_eligible": true,
+    "requires": ["HawksEye"],
+    "notes": "AoE, 200 potency per target; consumes Hawk's Eye. Barrage-eligible."
+  },
+  "QuickNock": {
+    "id": 106,
+    "name": "Quick Nock",
+    "kind": "gcd",
+    "potency": 110,
+    "recast_s": 2.5,
+    "aoe": true,
+    "multi_hit_eligible": true,
+    "notes": "Pre-76 fallback; trait-upgraded to Ladonsbite. Never expected at level 100."
+  },
+  "EmpyrealArrow": {
+    "id": 3558,
+    "name": "Empyreal Arrow",
+    "kind": "ogcd",
+    "potency": 260,
+    "recast_s": 15.0,
+    "cooldown_s": 15.0,
+    "notes": "Grants one guaranteed Repertoire proc on use."
+  },
+  "Sidewinder": {
+    "id": 3562,
+    "name": "Sidewinder",
+    "kind": "ogcd",
+    "potency": 400,
+    "recast_s": 60.0,
+    "cooldown_s": 60.0,
+    "notes": ""
+  },
+  "HeartbreakShot": {
+    "id": 36975,
+    "name": "Heartbreak Shot",
+    "kind": "ogcd",
+    "potency": 180,
+    "recast_s": 15.0,
+    "cooldown_s": 45.0,
+    "max_charges": 3,
+    "notes": "3 charges of 15 s; the live client reports cdmax 45 with recasttime 15. A Mage's Ballad Repertoire proc refunds job.ballad_charge_reduction_s of recast."
+  },
+  "Bloodletter": {
+    "id": 110,
+    "name": "Bloodletter",
+    "kind": "ogcd",
+    "potency": 130,
+    "recast_s": 15.0,
+    "cooldown_s": 45.0,
+    "max_charges": 3,
+    "notes": "Trait-upgraded to Heartbreak Shot at 92, so unavailable at level 100. Shares the charge pool. The brief's 130 potency is the pre-upgrade value."
+  },
+  "RainOfDeath": {
+    "id": 117,
+    "name": "Rain of Death",
+    "kind": "ogcd",
+    "potency": 100,
+    "recast_s": 15.0,
+    "cooldown_s": 45.0,
+    "max_charges": 3,
+    "aoe": true,
+    "notes": "Shares the Heartbreak Shot charge pool."
+  },
+  "PitchPerfect": {
+    "id": 7404,
+    "name": "Pitch Perfect",
+    "kind": "ogcd",
+    "potency": 0,
+    "recast_s": 1.0,
+    "cooldown_s": 1.0,
+    "notes": "Wanderer's Minuet only. Potency 100/220/360 by Repertoire stacks; see job.pitch_perfect_potency."
+  },
+  "Barrage": {
+    "id": 107,
+    "name": "Barrage",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "grants": [
+      {"status": "Barrage"},
+      {"status": "ResonantArrowReady"},
+      {"status": "HawksEye"}
+    ],
+    "status_gained_id": 128,
+    "notes": "Grants a guaranteed Hawk's Eye, the 10 s Barrage buff (the next weaponskill hits three times; see statuses.json weaponskill_hits) and the 30 s Resonant Arrow window."
+  },
+  "RagingStrikes": {
+    "id": 101,
+    "name": "Raging Strikes",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "grants": [{"status": "RagingStrikes"}],
+    "status_gained_id": 125,
+    "notes": "20 s, +15 percent damage."
+  },
+  "BattleVoice": {
+    "id": 118,
+    "name": "Battle Voice",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "grants": [{"status": "BattleVoice"}],
+    "status_gained_id": 141,
+    "notes": "20 s, +20 percent direct hit rate."
+  },
+  "RadiantFinale": {
+    "id": 25785,
+    "name": "Radiant Finale",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 110.0,
+    "cooldown_s": 110.0,
+    "self_target": true,
+    "grants": [
+      {"status": "RadiantFinale"},
+      {"status": "RadiantEncoreReady"}
+    ],
+    "status_gained_id": 2722,
+    "notes": "Consumes every coda; the buff multiplier is job.coda_damage_mult[n]."
+  },
+  "WanderersMinuet": {
+    "id": 3559,
+    "name": "The Wanderer's Minuet",
+    "kind": "song",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "grants": [{"status": "WanderersMinuet"}],
+    "status_gained_id": 865,
+    "notes": "Repertoire becomes Pitch Perfect stacks."
+  },
+  "MagesBallad": {
+    "id": 114,
+    "name": "Mage's Ballad",
+    "kind": "song",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "grants": [{"status": "MagesBallad"}],
+    "status_gained_id": 139,
+    "notes": "Repertoire reduces the shared charge recast."
+  },
+  "ArmysPaeon": {
+    "id": 116,
+    "name": "Army's Paeon",
+    "kind": "song",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "grants": [{"status": "ArmysPaeon"}],
+    "status_gained_id": 138,
+    "notes": "Repertoire becomes haste stacks."
+  },
+  "SecondWind": {
+    "id": 7541,
+    "name": "Second Wind",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "notes": "Utility; off by default."
+  },
+  "Troubadour": {
+    "id": 7405,
+    "name": "Troubadour",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 90.0,
+    "cooldown_s": 90.0,
+    "self_target": true,
+    "notes": "Utility; off by default."
+  },
+  "NaturesMinne": {
+    "id": 7408,
+    "name": "Nature's Minne",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 120.0,
+    "cooldown_s": 120.0,
+    "self_target": true,
+    "notes": "Utility; off by default."
+  },
+  "WardensPaean": {
+    "id": 3561,
+    "name": "The Warden's Paean",
+    "kind": "buff",
+    "potency": 0,
+    "recast_s": 45.0,
+    "cooldown_s": 45.0,
+    "self_target": true,
+    "notes": "Utility; off by default."
+  },
+  "Windbite": {
+    "id": 113,
+    "name": "Windbite",
+    "kind": "gcd",
+    "potency": 60,
+    "recast_s": 2.5,
+    "grants": [{"status": "Windbite"}],
+    "status_gained_id": 129,
+    "notes": "Pre-64 fallback; trait-upgraded to Stormbite. Never used at level 100."
+  },
+  "VenomousBite": {
+    "id": 100,
+    "name": "Venomous Bite",
+    "kind": "gcd",
+    "potency": 100,
+    "recast_s": 2.5,
+    "grants": [{"status": "VenomousBite"}],
+    "status_gained_id": 124,
+    "notes": "Pre-64 fallback; trait-upgraded to Caustic Bite. Never used at level 100."
+  },
+  "Potion": {
+    "id": 900000,
+    "name": "Gemdraught of Dexterity",
+    "kind": "item",
+    "potency": 0,
+    "recast_s": 270.0,
+    "cooldown_s": 270.0,
+    "self_target": true,
+    "grants": [{"status": "Medicated"}],
+    "notes": "Placeholder id: potions are addressed by hqid through GetItem, not by action id, so they are absent from CielBardData.Actions and verify_against_lua skips kind=item records."
+  }
+}

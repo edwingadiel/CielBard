@@ -1,6 +1,6 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.5.0"
+CielBardData.Version = "0.5.1"
 CielBardData.BardJobID = 23
 CielBardData.ACRProfileName = "CielBard"
 
@@ -171,6 +171,7 @@ CielBardData.Defaults = {
     resourcePooling = true,
 
     dotRefreshSeconds = 3.0,
+    dotUrgentSeconds = 1.5, -- Iron Jaws pre-empts proc GCDs when a DoT is this close to falling off
     dotMinimumTTK = 18,
     snapshotIronJaws = true,
 
@@ -208,8 +209,12 @@ CielBardData.Defaults = {
     apSwapRemaining = 10.1,
 
     apexBurstGauge = 80,
-    apexOffcycleGauge = 90,
+    -- Simulator sweep (300 paired seeds): Apex at 80 off-cycle beats 90 by
+    -- +0.25% (p = 0.0003) and 100 is worst; the pre-burst hold measured 0.
+    apexOffcycleGauge = 80,
     apexHoldForBurstSeconds = 35,
+    -- Empyreal Arrow pre-burst hold; 0 = never hold (simulator: +0.7% DPS vs 5 s).
+    empyrealHoldForBurstSeconds = 0,
     chargeCapLeadSeconds = 4.0, -- while pooling, spend the second charge when the third completes within this
     chargePoolSeconds = 25, -- pool shared charges when the next burst is this close (the Army's Paeon tail)
     chargeRechargeSeconds = 15, -- Heartbreak recharge; a full stack is spent while pooling only if it returns before burst

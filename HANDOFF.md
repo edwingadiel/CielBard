@@ -4,7 +4,7 @@
 
 CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMinion. It was designed from an event-level analysis of the top 40 Bard parses for Vamp Fatale rather than from a single copied parse. The core conclusion was that high-end Bard play is a state-driven priority problem: procs, gauge, songs, target count, cooldown availability, and expected kill time change the best next action.
 
-The current release is **v0.5.0**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+The current release is **v0.5.1**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
 
 v0.4.0 added five behaviors on top of v0.3.0: opt-in potion use, coda-aware Radiant Finale, per-action AoE thresholds, a configurable DoT gate before the two-minute burst, and a multi-dot toggle. Each has regression cases in `tests/run_mock_tests.py`.
 
@@ -47,7 +47,7 @@ Still required:
 | `CielBard/CielBard_Data.lua` | Action/status IDs, defaults, ability capabilities, and presets. |
 | `CielBard/CielBard_Rotation.lua` | Runtime state, TTK estimator, context builder, priorities, casting, and safeguards. |
 | `CielBard/CielBard.lua` | Initialization, persisted settings, presets, and GUI. |
-| `CielBard/module.def` | MMOMinion module manifest; currently version 0.4.0. |
+| `CielBard/module.def` | MMOMinion module manifest; currently version 0.5.1. |
 | `bard-analysis/` | Sanitized FFLogs collection and analysis scripts. |
 | `bard-analysis/output/merged-report.md` | Best single summary of the research and recommended policy. |
 | `tests/run_mock_tests.py` | Lua parser and mocked-MMOMinion invariant suite. |
@@ -456,3 +456,142 @@ The next milestone should not be called stable until:
 - TTK policies can be observed switching without erratic oscillation.
 - No credentials or raw private data appear in version control.
 - Offline regression tests pass after all live-client fixes.
+
+## Engine changes made from simulator findings (0.5.1)
+
+Applied from `sim/output/FINDINGS.md`, verified with a 200-seed 510 s A/B on identical seeds (25,805 -> 26,074 DPS, +1.04%, >6 sigma; Empyreal 30.0 -> 33.3 casts, Iron Jaws 10.65 -> 11.61, hard DoT re-applications 2.35 -> 1.36 per fight):
+
+1. `nextBurstSeconds()` now returns the maximum remaining cooldown over the enabled burst buffs (time until the whole package is ready). The old minimum form started every pre-burst hold ~7.5 s early because Radiant Finale's 110 s recast leads Raging/Battle Voice.
+2. Empyreal Arrow's pre-burst hold has its own key, `empyrealHoldForBurstSeconds`, defaulting to 0. The hold could never pay for itself (52 potency of buff value vs a 260-potency lost use).
+3. `apexOffcycleGauge` 90 -> 80 (300 paired seeds: +0.25%, p = 0.0003; 100 was worst). `apexHoldForBurstSeconds` measured 0 effect and is left as is.
+4. Iron Jaws urgency pre-empt ahead of the proc consumers, `dotUrgentSeconds = 1.5`, so Blast/Resonant/Encore/Apex chains cannot let both DoTs fall off.
+
+Not changed on purpose: `maxWeaves`, `weaveMinGcdRemaining`, `dotRefreshSeconds`, Pitch Perfect rules (see FINDINGS.md section 3). `chargePoolSeconds` should be re-swept now that `nextBurstSeconds` is no longer skewed. The sim's engine hash pins in `tests/test_integration.py` were re-baselined for 0.5.1.
+
+## Simulator
+
+`sim/` is a level-100 Bard training-dummy simulator that **drives the shipped Lua engine
+rather than re-implementing it**. `sim/client.py` publishes a fake MMOMinion API into a
+`lupa` `LuaRuntime`, loads `CielBard/CielBard_Data.lua` and `CielBard/CielBard_Rotation.lua`
+verbatim, and calls `CielBardEngine.Step(false)` once per pulse; `sim/core.py` owns the
+clock, the event queue and every game rule. The engine's decisions are the thing under
+test, so nothing under `CielBard/` is ever modified - `tests/test_integration.py` pins both
+files by sha256. The fake client reproduces the live-client cooldown semantics recorded in
+this handoff (elapsed `cd` against total `cdmax`, `cdmax = recast x maxCharges` for charged
+actions, `IsReady` false for self-targeted actions against an enemy id, gauge indices 4 and
+2). Every fight is deterministic given a seed, in the same process or a different one.
+
+### What exists
+
+| path | contents |
+|---|---|
+| `sim/SPEC.md` | the complete contract: module ownership, public signatures, the pulse loop, cooldown semantics, the calibration procedure |
+| `sim/README.md` | how to install and run it, plus "things that will look like bugs and are not" |
+| `sim/MECHANICS_CORRECTIONS.md` | job-guide and Balance corrections that override SPEC where they disagree, and the parse-study-derived hypotheses |
+| `sim/data/*.json` | every potency, duration, recast, proc rate and status id. No mechanic constant lives in code |
+| `sim/output/calibration.md` | the calibration report (generated head, hand-written analysis below the `# Analysis` marker) |
+| **`sim/output/FINDINGS.md`** | **start here.** The decision-oriented digest for this repository's maintainer: what the mechanics corrections changed, the Apex verdict, the Empyreal / Pitch Perfect / Iron Jaws diagnoses, the recommended engine changes ranked by expected DPS gain with a confidence column, and the assumptions still unverified |
+| `sim/output/sweep_apex.md` | `MECHANICS_CORRECTIONS.md` item 16 settled: the 9 x 60 grid plus the 300-paired-seed confirmation, with `sweep_apex.csv` / `.json` / `_confirm*.json` beside it |
+| `sim/output/empyreal_report.md` | per-pulse attribution of every wasted Empyreal second, the root cause on `CielBard_Rotation.lua:958`, the isolation proof, and the engine change written out (`empyreal_reasons.csv`, `empyreal_paired.csv`) |
+| `sim/output/pp_ironjaws_report.md` | the Pitch Perfect stack budget (balances - not a defect) and the Iron Jaws DoT fall-off defect, with `diag_pp_ij.py`, `sweep_dots.csv`, `sweep_dots_nokill.csv`, `sweep_terminaldump400.csv` |
+| `tests/test_*.py`, `tests/run_sim_tests.py` | unit and integration suites, plain `unittest`, no pytest |
+
+### How to run it
+
+Everything runs as a module from the repository root, with the Python 3.12 interpreter that
+has `lupa` (a bare `python` on the dev box is the Microsoft Store stub).
+
+```bash
+# one fight
+python -m sim.run --seconds 510 --seed 1 --kill-time 510
+
+# a seed range, aggregated to mean / sd / p05 / p50 / p95
+python -m sim.batch --seconds 510 --seeds 1-200 --workers 11 --json sim/output/batch.json
+
+# a configuration axis (engine config keys, plus ping_ms / pulse_ms / seconds)
+python -m sim.sweep --seconds 510 --kill-time 510 --seeds 1-150 --workers 11 \
+  --axis "resourcePooling=true,false" --csv sim/output/sweep.csv
+
+# refit the potency -> damage scalar against the 40 Vamp Fatale parses
+python -m sim.calibrate --seeds 1-150 --workers 11 --out sim/output/calibration.md
+
+# tests
+python tests/run_sim_tests.py
+```
+
+`--kill-time SECONDS` is the flag worth knowing: without it the target is a striking dummy
+that never dies and the engine's TTK estimator never reaches its terminal band. Pass it
+when comparing against kill parses; leave it off for sustained dummy DPS. Read `sweep`
+output with its `dps_sem` column beside `delta` - at 510 s, neighbouring points routinely
+differ by less than the batch standard error.
+
+### Calibration result
+
+Fitted `potency_to_damage = 132.40` (from an uncalibrated 100.0) over seeds 1-150, residual
+mean absolute error 0.99%, max 2.73% across the 40 parses; the kill-time bands were re-run
+at 120 seeds each. On that scale the shipped engine simulates **1.33% below the top-10 mean
+aDPS of 34,633**. The mechanics corrections (Barrage's triple hit) moved the scalar from
+136.80 to 132.40, i.e. +3.3% simulated potency, and moved no per-action rate by as much as
+1% - they changed what a cast is worth, not what the engine casts.
+
+**Two engine changes are now measured well enough to make, and they are most of the gap.**
+Both are described and not made; nothing under `CielBard/` has been modified.
+
+1. **The pre-burst Empyreal Arrow hold, +0.67% to +0.75% (3.5-3.7 sigma).**
+   `CielBard_Rotation.lua:958` holds Empyreal for a nominal 5 s before a burst, but
+   `nextBurstSeconds()` returns 0 as soon as the *first* burst action is ready, so Radiant
+   Finale's 110 s recast makes the hold ~15 s - exactly one Empyreal recast, lost once per
+   two-minute window (30.0 casts per fight against the parses' 34.0). The fix is two parts:
+   make `nextBurstSeconds()` take the maximum remaining cooldown over the enabled burst
+   actions, and give the hold its own key `empyrealHoldForBurstSeconds` defaulting to 0.
+   The first part also un-skews `chargePoolSeconds` and `apexHoldForBurstSeconds`, which are
+   silently running ~7.5 s early.
+2. **`apexOffcycleGauge` 90 -> 80, +0.25% (p = 0.0003 over 300 paired seeds).** The gauge
+   carries the whole effect; `apexHoldForBurstSeconds` is worth nothing measurable at any
+   value and gauge 100 is the worst of the three.
+
+A third change, an Iron Jaws urgency pre-empt (`dotUrgentSeconds = 1.5`), is worth about
++0.16% - below what 150 seeds resolve, so it is a correctness fix to be verified on cast
+counts. Pitch Perfect needs no change: its stack budget balances and the count gap is an
+artefact of `sim.calibrate` not setting `kill_time_s`.
+
+Read `sim/output/FINDINGS.md` first - it is the ranked decision list with confidences and
+the remaining unverified assumptions. `sim/output/calibration.md` has the full
+per-action disagreement analysis and the parameters still worth sweeping;
+`sim/output/sweep_apex.md`, `empyreal_report.md` and `pp_ironjaws_report.md` are the
+underlying investigations.
+
+### Known limitations
+
+- **Raw parse replay is not possible.** Only `bard-analysis/output/killtime/killtime.csv`
+  (40 rows of aDPS, duration and kill timing) and the aggregate counts in
+  `merged-report.md` survive; the raw FFLogs event streams are not on disk. Calibration is
+  therefore simulated DPS against parse aDPS as a function of fight length, plus per-action
+  *rates* against the merged report's top-10 means. There is no per-parse rotation to diff
+  against, and no way to recover gauge or Repertoire state from the parses.
+- **One multiplicative scalar cannot correct a rotation-shape error.** Its mean residual is
+  zero by construction; the model's R^2 against a constant-mean null is 0.03. Judge the
+  rotation from the per-action rate table, never from the DPS number.
+- **The scalar absorbs things that are not stats**: external raid buffs in aDPS, the
+  parses' real movement and downtime against a stationary dummy, the potion (all 40 parses
+  used one, the simulator does not by default - measured at +1.08% over 150 seeds, 5.7
+  sigma), and Bard auto attacks
+  (`stats.auto_attack_dps` ships at 0.0, worth 7-10% of real aDPS). Auto attacks in
+  particular are absorbed as a multiple of potency rather than of time, which biases any
+  experiment that moves GCD count without moving potency: ping, downtime windows, GCD_ONLY.
+- **Single target only.** Rain of Death, Ladonsbite and Shadowbite have no multi-target
+  damage model, so every shared charge is converted into Heartbreak Shot and the cleave
+  optimisation the merged report identifies cannot be tested.
+- **Utility casts are not modelled** (Warden's Paean, Troubadour, Nature's Minne, Repelling
+  Shot), which is most of the residual 0.65 casts/min gap against the parses.
+- Several mechanics are simulator assumptions rather than verified facts - the Army's Muse
+  haste table, the Apex potency floor, non-DoT status ids, Radiant Encore's 700/800/1100,
+  Repertoire procs modelled on the song timer independently of DoT presence, and Barrage's
+  triple hit (`statuses.json` `weaponskill_hits = 3`, spent on the next
+  `multi_hit_eligible` weaponskill, which is the model for which weaponskills Barrage may
+  multiply). All of them are listed under "Unverified assumptions" in the calibration
+  report, and any of them can be changed by editing JSON under `sim/data/`.
+- Two SPEC scenarios are unreachable by the shipped engine and are documented instead of
+  papered over: the 150 ms ping oGCD reduction (arithmetically impossible below ~350 ms)
+  and the potion landing before Raging Strikes on the opener (the song takes the first
+  weave slot). See "Known mechanic mismatches" in `sim/README.md`.

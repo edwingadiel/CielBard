@@ -1,0 +1,17 @@
+comparison,config,ping_ms,n,dps_mean,dps_sem,empyreal,empyreal_per_min,heartbreak,apex,blast,pitchperfect,ogcd,paired_delta,paired_delta_pct,paired_sem,t
+vs_shipped,resourcePooling=false + maxWeaves=3,0,60,34120.8,73.1,33.75,3.971,64.68,10.20,8.47,25.93,162.4,340.2,1.01,70.5,4.83
+vs_shipped,resourcePooling=false,0,60,34006.3,75.7,33.63,3.957,64.13,10.23,8.42,25.77,161.5,225.8,0.67,64.0,3.53
+vs_shipped,resourcePooling=false + chargePoolSeconds=25 + apexHoldForBurstSeconds=35,0,60,34006.3,75.7,33.63,3.957,64.13,10.23,8.42,25.77,161.5,225.8,0.67,64.0,3.53
+vs_shipped,maxWeaves=3 + weaveMinGcdRemaining=0.5,0,60,33832.2,73.6,30.00,3.529,63.72,9.83,8.10,25.83,157.6,51.6,0.15,60.0,0.86
+vs_shipped,maxWeaves=3,0,60,33814.0,70.6,30.00,3.529,62.90,9.82,8.13,25.90,156.8,33.4,0.10,42.7,0.78
+vs_shipped,requestThrottleMs=30,0,60,33793.4,71.1,30.00,3.529,63.32,9.80,8.10,25.87,157.2,12.9,0.04,11.9,1.08
+vs_shipped,shipped default,0,60,33780.6,69.3,30.00,3.529,63.32,9.78,8.10,25.85,157.2,0.0,0.00,0.0,0.00
+vs_shipped,weaveMinGcdRemaining=0.8,0,60,33776.2,68.7,30.00,3.529,63.27,9.77,8.12,25.93,157.2,-4.4,-0.01,29.8,-0.15
+vs_shipped,weaveMinGcdRemaining=0.5,0,60,33774.0,75.6,30.00,3.529,63.33,9.85,8.13,25.82,157.2,-6.5,-0.02,53.7,-0.12
+vs_shipped,resourcePooling=true + chargePoolSeconds=0 + apexHoldForBurstSeconds=0,0,60,33765.1,72.3,30.00,3.529,64.13,9.87,8.25,25.67,157.8,-15.4,-0.05,54.8,-0.28
+vs_shipped,pulseMs=10,0,60,33748.1,70.2,30.00,3.529,62.90,9.80,8.10,26.02,156.9,-32.5,-0.10,33.4,-0.97
+vs_pooling_false,resourcePooling=false + maxWeaves=3,0,60,34120.8,73.1,33.75,3.971,64.68,10.20,8.47,25.93,162.4,114.4,0.34,74.0,1.55
+vs_pooling_false,resourcePooling=false (base),0,60,34006.3,75.7,33.63,3.957,64.13,10.23,8.42,25.77,161.5,0.0,0.00,0.0,0.00
+vs_shipped_ping60,resourcePooling=false,60,60,34007.1,76.6,33.38,3.927,64.25,10.12,8.40,25.43,161.1,187.3,0.55,66.6,2.81
+vs_shipped_ping60,resourcePooling=false + maxWeaves=3,60,60,34007.1,76.6,33.38,3.927,64.25,10.12,8.40,25.43,161.1,187.3,0.55,66.6,2.81
+vs_shipped_ping60,shipped default,60,60,33819.8,71.9,30.00,3.529,63.27,9.77,8.10,25.75,157.0,0.0,0.00,0.0,0.00

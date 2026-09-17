@@ -1,0 +1,130 @@
+{
+  "Stormbite": {
+    "id": 1201,
+    "name": "Stormbite",
+    "duration_s": 45.0,
+    "on_target": true,
+    "dot_potency": 25,
+    "snapshots": true,
+    "notes": "Id verified against CielBardData.Statuses."
+  },
+  "CausticBite": {
+    "id": 1200,
+    "name": "Caustic Bite",
+    "duration_s": 45.0,
+    "on_target": true,
+    "dot_potency": 20,
+    "snapshots": true,
+    "notes": "Id verified against CielBardData.Statuses."
+  },
+  "Windbite": {
+    "id": 129,
+    "name": "Windbite",
+    "duration_s": 30.0,
+    "on_target": true,
+    "dot_potency": 20,
+    "snapshots": true,
+    "notes": "Legacy DoT; id verified against CielBardData.Statuses."
+  },
+  "VenomousBite": {
+    "id": 124,
+    "name": "Venomous Bite",
+    "duration_s": 30.0,
+    "on_target": true,
+    "dot_potency": 20,
+    "snapshots": true,
+    "notes": "Legacy DoT; id verified against CielBardData.Statuses."
+  },
+  "HawksEye": {
+    "id": 3861,
+    "name": "Hawk's Eye",
+    "duration_s": 30.0,
+    "notes": "Enables Refulgent Arrow and Shadowbite. Id is simulator-internal (unverified)."
+  },
+  "RagingStrikes": {
+    "id": 125,
+    "name": "Raging Strikes",
+    "duration_s": 20.0,
+    "damage_mult": 1.15,
+    "notes": "Id is simulator-internal (unverified)."
+  },
+  "BattleVoice": {
+    "id": 141,
+    "name": "Battle Voice",
+    "duration_s": 20.0,
+    "dh_add": 0.20,
+    "notes": "Dawntrail duration is 20 s. Id is simulator-internal (unverified)."
+  },
+  "RadiantFinale": {
+    "id": 2722,
+    "name": "Radiant Finale",
+    "duration_s": 20.0,
+    "damage_mult": 1.0,
+    "notes": "Actual multiplier is job.coda_damage_mult[codas consumed] (1.02/1.04/1.06); the 1.0 here is the no-coda identity. Id is simulator-internal (unverified)."
+  },
+  "BlastArrowReady": {
+    "id": 2692,
+    "name": "Blast Arrow Ready",
+    "duration_s": 10.0,
+    "notes": "Id is simulator-internal (unverified)."
+  },
+  "ResonantArrowReady": {
+    "id": 3862,
+    "name": "Resonant Arrow Ready",
+    "duration_s": 30.0,
+    "notes": "Id is simulator-internal (unverified)."
+  },
+  "RadiantEncoreReady": {
+    "id": 3863,
+    "name": "Radiant Encore Ready",
+    "duration_s": 30.0,
+    "notes": "Id is simulator-internal (unverified)."
+  },
+  "Barrage": {
+    "id": 128,
+    "name": "Barrage",
+    "duration_s": 10.0,
+    "weaponskill_hits": 3,
+    "notes": "The live Barrage buff is 10 s and makes the next weaponskill hit three times (Refulgent Arrow 280 -> 840). MECHANICS_CORRECTIONS 8's 30 s is the Resonant Arrow transform window, which ResonantArrowReady carries. weaponskill_hits is the simulator's model of the triple hit: the corrections list only the transform. Id is simulator-internal (unverified)."
+  },
+  "WanderersMinuet": {
+    "id": 865,
+    "name": "The Wanderer's Minuet",
+    "duration_s": 45.0,
+    "crit_add": 0.02,
+    "notes": "status_gained_id of action 3559. Id is simulator-internal (unverified)."
+  },
+  "MagesBallad": {
+    "id": 139,
+    "name": "Mage's Ballad",
+    "duration_s": 45.0,
+    "damage_mult": 1.01,
+    "notes": "status_gained_id of action 114. Id is simulator-internal (unverified)."
+  },
+  "ArmysPaeon": {
+    "id": 138,
+    "name": "Army's Paeon",
+    "duration_s": 45.0,
+    "dh_add": 0.03,
+    "notes": "status_gained_id of action 116. Id is simulator-internal (unverified)."
+  },
+  "ArmysMuse": {
+    "id": 1932,
+    "name": "Army's Muse",
+    "duration_s": 10.0,
+    "notes": "Post-Paeon haste; percentage from job.army_muse_haste_by_stacks_pct. Id is simulator-internal (unverified)."
+  },
+  "ArmysEthos": {
+    "id": 1933,
+    "name": "Army's Ethos",
+    "duration_s": 30.0,
+    "notes": "Holds the Paeon stack count until the next song starts. Id is simulator-internal (unverified)."
+  },
+  "Medicated": {
+    "id": 49,
+    "name": "Medicated",
+    "duration_s": 30.0,
+    "damage_mult": 1.0,
+    "notes": "Actual multiplier is stats.potion_damage_mult; the 1.0 here is the identity so a fight without a potion is unaffected. Id is simulator-internal (unverified)."
+  }
+}

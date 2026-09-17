@@ -1,0 +1,33 @@
+{
+  "gcd_base_s": 2.50,
+  "gcd_rounding_ms": 10,
+  "anim_lock_gcd_s": 0.60,
+  "anim_lock_ogcd_s": 0.60,
+  "server_tick_s": 3.0,
+  "repertoire_proc_chance": 0.80,
+  "repertoire_on_song_timer": true,
+  "repertoire_independent_of_dots": true,
+  "repertoire_skip_final_tick": true,
+  "soul_voice_per_repertoire": 5,
+  "soul_voice_max": 100,
+  "pitch_perfect_max_stacks": 3,
+  "pitch_perfect_potency": [100, 220, 360],
+  "army_paeon_max_stacks": 4,
+  "army_paeon_haste_per_stack_pct": 4.0,
+  "army_muse_haste_by_stacks_pct": [1.0, 2.0, 4.0, 12.0],
+  "army_ethos_s": 30.0,
+  "ballad_charge_reduction_s": 7.5,
+  "song_duration_s": 45.0,
+  "coda_damage_mult": [1.0, 1.02, 1.04, 1.06],
+  "radiant_encore_potency": [0, 700, 800, 1100],
+  "apex": {
+    "gauge_min": 20,
+    "gauge_max": 100,
+    "potency_min": 100,
+    "potency_max": 600,
+    "blast_gauge_threshold": 80
+  },
+  "hawks_eye_proc_chance": 0.35,
+  "auto_attack_interval_s": 3.04,
+  "gcd_queue_window_s": 0.5
+}

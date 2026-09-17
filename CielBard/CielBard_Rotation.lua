@@ -233,9 +233,14 @@ function E.CodaCount()
     return count
 end
 
+-- Seconds until the whole enabled burst package is ready: the MAXIMUM remaining
+-- cooldown over the enabled buffs. Radiant Finale (110 s) comes up ~7.5 s before
+-- Raging Strikes and Battle Voice (120 s); taking the minimum made every
+-- pre-burst hold (Empyreal, charges, Apex) start that much too early. Measured
+-- in the simulator: one lost Empyreal Arrow per burst window.
 local function nextBurstSeconds()
     if not majorBurstEnabled() then return 999, false end
-    local best = 999
+    local worst = 0
     local candidates = {
         { "RagingStrikes", A.RagingStrikes },
         { "BattleVoice", A.BattleVoice },
@@ -243,11 +248,12 @@ local function nextBurstSeconds()
     }
     for _, candidate in ipairs(candidates) do
         if E.AbilityEnabled(candidate[1]) then
-            if ready(candidate[2], Player.id) then return 0, true end
-            best = math.min(best, cooldownSeconds(action(candidate[2])))
+            local remaining = ready(candidate[2], Player.id) and 0 or cooldownSeconds(action(candidate[2]))
+            if remaining >= 999 then remaining = 0 end -- no cooldown data: treat as ready
+            worst = math.max(worst, remaining)
         end
     end
-    return best, true
+    return worst, true
 end
 
 local function songEnabled(key)
@@ -733,6 +739,18 @@ function E.TryGCD(ctx)
              E.TryCast(A.VenomousBite, target, "Apply Venomous Bite fallback")) then return true end
     end
 
+    -- A DoT about to fall off outranks the proc consumers: Blast, Resonant,
+    -- Encore and Apex can chain two GCDs deep (~5 s) and let both DoTs expire,
+    -- costing two hard re-applications. Only fires when a DoT is actually
+    -- present (> 0.2) so it never wastes Iron Jaws on a clean target.
+    local ironJawsEnabled = E.AbilityEnabled("IronJaws") and
+        E.AbilityEnabled("Stormbite") and E.AbilityEnabled("CausticBite")
+    if ironJawsEnabled and ctx.ttk > c.dotMinimumTTK then
+        local soonest = math.min(ctx.storm, ctx.caustic)
+        if soonest > 0.2 and soonest <= (tonumber(c.dotUrgentSeconds) or 1.5) and
+            E.TryCast(A.IronJaws, target, "Urgent Iron Jaws before DoT falls off") then return true end
+    end
+
     -- Transformed/proc actions are identified by MMOMinion's IsReady state.
     if E.AbilityEnabled("BlastArrow") and ready(A.BlastArrow, target.id) and
         E.TryCast(A.BlastArrow, target, "Consume Blast Arrow") then return true end
@@ -757,8 +775,6 @@ function E.TryGCD(ctx)
 
     -- Snapshot late in buffs only when enough lifetime remains; otherwise use
     -- the ordinary near-expiration refresh.
-    local ironJawsEnabled = E.AbilityEnabled("IronJaws") and
-        E.AbilityEnabled("Stormbite") and E.AbilityEnabled("CausticBite")
     if ironJawsEnabled and c.snapshotIronJaws and ctx.burstActive and ctx.burstElapsed >= 15 and
         ctx.ttk > c.dotMinimumTTK and
         math.min(ctx.storm, ctx.caustic) < 22 and
@@ -910,6 +926,10 @@ function E.TryOGCD(ctx)
             E.TryPotion(ctx, "Potion before burst: " .. tostring(s.potionName)) then return true end
         if tryStartBurst(ctx) then return true end
     end
+    -- Once Raging Strikes is out the burst timer jumps to 120 s, so the
+    -- potion also gets the first weave slots of the active window.
+    if potionWanted(ctx) and ctx.burstActive and ctx.burstElapsed <= 5 and
+        E.TryPotion(ctx, "Potion in burst window: " .. tostring(s.potionName)) then return true end
     if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and
         E.TryPotion(ctx, "Potion on cooldown: " .. tostring(s.potionName)) then return true end
 
@@ -955,7 +975,11 @@ function E.TryOGCD(ctx)
             (ctx.repertoire >= 3 or ctx.songRemaining <= 3) and
             E.TryCast(A.PitchPerfect, target, "Pitch Perfect before overcap/song end") then return true end
 
-        local holdEmpyreal = c.resourcePooling and ctx.burstConfigured and ctx.nextBurst <= 5 and not ctx.terminal
+        -- Empyreal Arrow is 260 potency; a buff window adds ~52 to it, while a
+        -- delayed use risks losing a whole 260. The pre-burst hold defaults to 0.
+        local holdEmpyreal = c.resourcePooling and ctx.burstConfigured and not ctx.terminal and
+            (tonumber(c.empyrealHoldForBurstSeconds) or 0) > 0 and
+            ctx.nextBurst <= (tonumber(c.empyrealHoldForBurstSeconds) or 0)
         if E.AbilityEnabled("EmpyrealArrow") and not holdEmpyreal and
             E.TryCast(A.EmpyrealArrow, target, "Empyreal Arrow on cooldown") then return true end
 
