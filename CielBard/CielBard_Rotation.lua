@@ -41,6 +41,10 @@ E.state = {
     potionItem = nil,
     potionAction = nil,
     potionUsedAt = 0,
+    charges = 3,
+    chargeRemaining = 0,
+    maxCharges = 3,
+    chargeInfo = false,
 }
 
 local function now()
@@ -295,6 +299,8 @@ function E.ResetCombat(reason)
     s.multiDotTargetName = "None"
     s.multiDotScanAt = 0
     s.multiDotCandidates = {}
+    s.charges = 3
+    s.chargeRemaining = 0
     s.lastDecision = reason or "Reset"
 end
 
@@ -788,6 +794,41 @@ function E.TryGCD(ctx)
     return E.TryCast(A.HeavyShot, target, "Heavy Shot level-sync fallback")
 end
 
+-- Shared-charge model (Heartbreak Shot / Bloodletter / Rain of Death).
+-- The client exposes the game's charged-recast layout directly: cdmax is the
+-- full stack (recast x max charges, 45s for three), cd is elapsed, and the
+-- charge count is floor(cd / recast). Off cooldown means a full stack.
+function E.UpdateCharges()
+    local s = E.state
+    local ac = action(E.AbilityEnabled("HeartbreakShot") and A.HeartbreakShot or A.Bloodletter)
+    local cd, cdmax, recast = ac and tonumber(ac.cd), ac and tonumber(ac.cdmax), ac and tonumber(ac.recasttime)
+    if not ac or not recast or recast <= 0 then s.chargeInfo = false return end
+    s.chargeInfo = true
+    local maxCharges = (cdmax and cdmax >= recast * 2) and math.floor(cdmax / recast + 0.5) or 3
+    s.maxCharges = maxCharges
+    if ac.isoncd == false or not cd or not cdmax or cdmax <= 0 then
+        s.charges, s.chargeRemaining = maxCharges, 0
+        return
+    end
+    s.charges = clamp(math.floor(cd / recast), 0, maxCharges)
+    s.chargeRemaining = s.charges >= maxCharges and 0 or (recast - (cd % recast))
+end
+
+local function noteChargeSpent()
+    local s = E.state
+    s.charges = math.max(0, (s.charges or 0) - 1)
+end
+
+-- True when a charge would be wasted soon: already full, or the last charge
+-- completes within about one GCD.
+local function chargeAboutToCap(ctx)
+    local s = E.state
+    if not s.chargeInfo then return true end -- no data: never hold
+    local maxCharges = s.maxCharges or 3
+    if s.charges >= maxCharges then return true end
+    return s.charges == maxCharges - 1 and s.chargeRemaining <= (tonumber(E.config.chargeCapLeadSeconds) or 2.5)
+end
+
 local function chargeActions(ctx)
     local result = {}
     if E.AoEAllowed("RainOfDeath", ctx) then table.insert(result, A.RainOfDeath) end
@@ -798,7 +839,7 @@ end
 
 local function tryCharge(ctx, decision)
     for _, actionID in ipairs(chargeActions(ctx)) do
-        if E.TryCast(actionID, ctx.target, decision) then return true end
+        if E.TryCast(actionID, ctx.target, decision) then noteChargeSpent() return true end
     end
     return false
 end
@@ -896,6 +937,20 @@ function E.TryOGCD(ctx)
             E.TryCast(A.Sidewinder, target, "Sidewinder inside buffs") then return true end
         if tryCharge(ctx, ctx.aoe and "Enabled charge spender in cleave" or "Enabled charge spender in buffs") then return true end
     else
+        -- Shared charges are spent on cooldown. In the run-up to a two-minute
+        -- burst (roughly the Army's Paeon tail) they are pooled so the burst
+        -- opens with all three. While pooling, a full stack is only spent when
+        -- the burst is still more than one recharge away, so the charge is
+        -- back before it starts.
+        local pooling = c.resourcePooling and ctx.burstConfigured and not ctx.terminal and
+            ctx.nextBurst <= (tonumber(c.chargePoolSeconds) or 25)
+        local spend = not pooling
+        if pooling and E.state.chargeInfo and E.state.charges >= (E.state.maxCharges or 3) and
+            ctx.nextBurst > (tonumber(c.chargeRechargeSeconds) or 15) then spend = true end
+        if not E.state.chargeInfo then spend = true end -- no charge data: never hold
+        if spend and tryCharge(ctx, pooling and "Heartbreak Shot at 3 (recharges before burst)"
+                or (ctx.aoe and "Rain of Death on cooldown" or "Heartbreak Shot on cooldown")) then return true end
+
         if E.AbilityEnabled("PitchPerfect") and ctx.song == "WM" and
             (ctx.repertoire >= 3 or ctx.songRemaining <= 3) and
             E.TryCast(A.PitchPerfect, target, "Pitch Perfect before overcap/song end") then return true end
@@ -904,47 +959,99 @@ function E.TryOGCD(ctx)
         if E.AbilityEnabled("EmpyrealArrow") and not holdEmpyreal and
             E.TryCast(A.EmpyrealArrow, target, "Empyreal Arrow on cooldown") then return true end
 
-        local holdCharge = c.resourcePooling and ctx.burstConfigured and ctx.nextBurst <= 15 and not ctx.terminal
-        if not holdCharge and chargeCooldown(ctx) <= 1.5 and
-            tryCharge(ctx, ctx.aoe and "AoE charge near cap" or "Single-target charge near cap") then return true end
+        -- Shared charges (Heartbreak/Bloodletter/Rain of Death): spend freely
+        -- outside burst. Holding is limited to a short window before burst and
+        -- never applies under Mage's Ballad, whose Repertoire procs refill
+        -- charges faster than they can be pooled. Cooldown fields on live
+        -- clients do not describe charge counts, so no near-cap heuristic.
     end
     return false
 end
 
-function E.OnUpdate()
+-- One decision pulse. `viaACR` is true when ACR's Cast() callback drives the
+-- engine; ACR's Enabled toggle is then the master switch instead of
+-- config.enabled. Returns true when an action request was issued.
+function E.Step(viaACR)
     local c, s = E.config, E.state
-    if not c or not c.enabled then s.lastDecision = "Disabled" return end
+    if not c then return false end
+    if not viaACR and not c.enabled then s.lastDecision = "Disabled" return false end
     local ticks = now()
-    if ticks - s.lastPulse < c.pulseMs then return end
+    if ticks - s.lastPulse < c.pulseMs then return false end
     s.lastPulse = ticks
 
-    if not Player or not Player.alive or Player.job ~= D.BardJobID then s.lastDecision = "Requires Bard" return end
-    if type(MIsLoading) == "function" and MIsLoading() then return end
-    if type(MIsLocked) == "function" and MIsLocked() then return end
-    if type(MIsCasting) == "function" and MIsCasting() then return end
+    if not Player or not Player.alive or Player.job ~= D.BardJobID then s.lastDecision = "Requires Bard" return false end
+    if type(MIsLoading) == "function" and MIsLoading() then return false end
+    if type(MIsLocked) == "function" and MIsLocked() then return false end
+    if type(MIsCasting) == "function" and MIsCasting() then return false end
     if c.requireCombat and not Player.incombat then
         if s.sampleTargetID ~= 0 then E.ResetCombat("Waiting for combat") end
-        return
+        return false
     end
     local target = E.GetTarget()
-    if not target then s.lastDecision = "No valid target" return end
-    if tonumber(target.distance2d) and target.distance2d > 25 then s.lastDecision = "Target out of range" return end
-    if c.requireLOS and target.los == false then s.lastDecision = "Target not in line of sight" return end
-    if ActionList and type(ActionList.IsCasting) == "function" and ActionList:IsCasting() then return end
+    if not target then s.lastDecision = "No valid target" return false end
+    if tonumber(target.distance2d) and target.distance2d > 25 then s.lastDecision = "Target out of range" return false end
+    -- Live clients report target.los == false on a striking dummy in plain
+    -- view, so this check is opt-in and also accepts the los2 field.
+    if c.requireLOS and target.los == false and target.los2 ~= true then s.lastDecision = "Target not in line of sight" return false end
+    if ActionList and type(ActionList.IsCasting) == "function" and ActionList:IsCasting() then return false end
 
     E.ObserveLastCast()
+    E.UpdateCharges()
     E.UpdateTTK(target, ticks)
     s.enemyCount = E.CountEnemiesNear(target)
     local ctx = E.BuildContext(target)
 
     -- When the GCD is available, it always wins. This encodes the strongest
     -- empirical finding: top players gained GCDs, not extra total button presses.
-    local gcdReady = ready(A.BurstShot, target.id) or ready(A.Stormbite, target.id) or
-        ready(A.HeavyShot, target.id)
+    -- IsReady does not reflect the recast on live clients, so the GCD timer is
+    -- read from cd/cdmax the same way the bot's SkillManager does.
+    local gcdRemaining = E.GCDRemaining(target)
+    s.gcdRemaining = gcdRemaining
+    if c.debug and ticks - (s.lastDebugAt or 0) >= 1000 and type(d) == "function" then
+        s.lastDebugAt = ticks
+        local bs, ea, wm = action(A.BurstShot), action(A.HeartbreakShot), action(A.WanderersMinuet)
+        local function f(ac) if not ac then return "nil" end
+            return string.format("cd=%s cdmax=%s isoncd=%s isready=%s IsReady=%s recast=%s",
+                tostring(ac.cd), tostring(ac.cdmax), tostring(ac.isoncd), tostring(ac.isready),
+                tostring(select(2, pcall(function() return ac:IsReady(target.id) end))), tostring(ac.recasttime)) end
+        d(string.format("[CielBard] charges=" .. tostring(s.charges) .. " gcdRem=%.2f weaves=%d | BurstShot %s | Heartbreak %s | WM %s | lastcast=%s since=%s",
+            gcdRemaining, s.weavesSinceGCD, f(bs), f(ea), f(wm),
+            tostring(Player.castinginfo and Player.castinginfo.lastcastid), tostring(Player.castinginfo and Player.castinginfo.timesincecast)))
+    end
+    local gcdReady = gcdRemaining <= (tonumber(c.gcdLeadSeconds) or 0.05)
     local mode = c.advancedEnabled and c.executionMode or "FULL"
     if gcdReady then
-        if mode == "OGCD_ONLY" then E.TryOGCD(ctx) else E.TryGCD(ctx) end
+        if mode == "OGCD_ONLY" then return E.TryOGCD(ctx) == true end
+        if E.TryGCD(ctx) then return true end
+        if mode ~= "GCD_ONLY" and gcdRemaining > (tonumber(c.gcdLeadSeconds) or 0.05) then return E.TryOGCD(ctx) == true end
+        return false
     elseif mode ~= "GCD_ONLY" then
-        E.TryOGCD(ctx)
+        -- Clip guard: only weave when the remaining GCD covers an animation lock.
+        if gcdRemaining < (tonumber(c.weaveMinGcdRemaining) or 0.65) then
+            s.lastDecision = "Waiting for GCD (" .. string.format("%.2f", gcdRemaining) .. "s)"
+            return false
+        end
+        return E.TryOGCD(ctx) == true
     end
+    return false
+end
+
+-- Seconds until the GCD is available, taken from the GCD filler's cooldown.
+function E.GCDRemaining(target)
+    local best = nil
+    for _, id in ipairs({ A.BurstShot, A.HeavyShot }) do
+        local ac = action(id)
+        if ac and tonumber(ac.cdmax) and tonumber(ac.cd) then
+            local remaining = math.max(0, ac.cdmax - ac.cd)
+            best = best and math.min(best, remaining) or remaining
+        end
+    end
+    if best ~= nil then return best end
+    -- No cooldown fields: fall back to readiness only.
+    if ready(A.BurstShot, target and target.id) or ready(A.HeavyShot, target and target.id) then return 0 end
+    return 999
+end
+
+function E.OnUpdate()
+    return E.Step(false)
 end

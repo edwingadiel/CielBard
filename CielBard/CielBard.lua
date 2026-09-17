@@ -1,6 +1,9 @@
 local CielBard = {
     windowOpen = true,
     initialized = false,
+    config = nil,
+    dirty = false,
+    lastSaveAt = 0,
 }
 
 local function deepCopy(value)
@@ -8,16 +11,6 @@ local function deepCopy(value)
     local result = {}
     for key, child in pairs(value) do result[key] = deepCopy(child) end
     return result
-end
-
-local function copyDefaults(destination, defaults)
-    for key, value in pairs(defaults) do
-        if destination[key] == nil then
-            destination[key] = deepCopy(value)
-        elseif type(value) == "table" and type(destination[key]) == "table" then
-            copyDefaults(destination[key], value)
-        end
-    end
 end
 
 local function merge(destination, source)
@@ -31,23 +24,121 @@ local function merge(destination, source)
     end
 end
 
+-- Settings persistence ---------------------------------------------------------
+-- MMOMinion's Settings object is a database-backed proxy. Assigning a table
+-- that already has contents (or assigning the proxy back to itself) raises
+-- "I was too lazy to implement a copy function for the DB-Settings Table".
+-- The live config therefore stays in memory and is mirrored to the store as
+-- flat primitive keys such as "abilities.ApexArrow".
+
+local function store()
+    if type(Settings) ~= "table" then return nil end
+    local ok, section = pcall(function() return Settings.CielBard end)
+    if not ok then return nil end
+    if section == nil then
+        local okSet = pcall(function() Settings.CielBard = {} end)
+        if not okSet then return nil end
+        ok, section = pcall(function() return Settings.CielBard end)
+        if not ok then return nil end
+    end
+    return section
+end
+
+local function flatten(tbl, prefix, out)
+    for key, value in pairs(tbl) do
+        local path = prefix and (prefix .. "." .. tostring(key)) or tostring(key)
+        if type(value) == "table" then
+            flatten(value, path, out)
+        elseif type(value) ~= "function" then
+            out[path] = value
+        end
+    end
+    return out
+end
+
+local function setPath(tbl, path, value)
+    local node = tbl
+    local parts = {}
+    for part in string.gmatch(path, "[^%.]+") do table.insert(parts, part) end
+    for index = 1, #parts - 1 do
+        local part = parts[index]
+        if type(node[part]) ~= "table" then node[part] = {} end
+        node = node[part]
+    end
+    node[parts[#parts]] = value
+end
+
+local function loadConfig()
+    local config = deepCopy(CielBardData.Defaults)
+    local section = store()
+    if section then
+        local ok, keys = pcall(function()
+            local found = {}
+            for key, value in pairs(section) do
+                if type(key) == "string" and type(value) ~= "table" and type(value) ~= "function" then
+                    found[key] = value
+                end
+            end
+            return found
+        end)
+        if ok and keys then
+            for path, value in pairs(keys) do setPath(config, path, value) end
+        end
+    end
+    return config
+end
+
+local function saveConfig(config)
+    local section = store()
+    if not section then return false end
+    local flat = flatten(config, nil, {})
+    local ok = pcall(function()
+        for path, value in pairs(flat) do
+            if section[path] ~= value then section[path] = value end
+        end
+    end)
+    return ok
+end
+
 local function settings()
-    Settings = Settings or {}
-    Settings.CielBard = Settings.CielBard or {}
-    copyDefaults(Settings.CielBard, CielBardData.Defaults)
-    return Settings.CielBard
+    if not CielBard.config then CielBard.config = loadConfig() end
+    return CielBard.config
 end
 
-local TIMING_VERSION = 2
+local function markDirty()
+    CielBard.dirty = true
+end
 
--- Pulse/throttle defaults were tightened in 0.4.1. Saved settings only fill
--- missing keys, so migrate once; users who tuned them afterwards keep theirs.
+local function flushIfDirty(force)
+    if not CielBard.dirty and not force then return end
+    local ticks = (type(Now) == "function" and Now()) or 0
+    if not force and ticks - CielBard.lastSaveAt < 1000 then return end
+    CielBard.lastSaveAt = ticks
+    if saveConfig(settings()) then CielBard.dirty = false end
+end
+
+-- Timing migration ---------------------------------------------------------------
+
+local TIMING_VERSION = 3
+
+-- One-time migrations for defaults that changed after users had saved them.
+-- v2: pulse/throttle tightened in 0.4.1. v3: requireLOS became opt-in in 0.5.0
+-- because live clients report los=false on dummies in plain view.
 local function migrateTiming(config)
-    if (tonumber(config.timingVersion) or 1) >= TIMING_VERSION then return end
-    config.pulseMs = CielBardData.Defaults.pulseMs
-    config.requestThrottleMs = CielBardData.Defaults.requestThrottleMs
+    local version = tonumber(config.timingVersion) or 1
+    if version >= TIMING_VERSION then return end
+    if version < 2 then
+        config.pulseMs = CielBardData.Defaults.pulseMs
+        config.requestThrottleMs = CielBardData.Defaults.requestThrottleMs
+    end
+    if version < 3 then
+        config.requireLOS = CielBardData.Defaults.requireLOS
+    end
     config.timingVersion = TIMING_VERSION
+    markDirty()
 end
+
+-- Lifecycle ----------------------------------------------------------------------
 
 function CielBard.Init()
     local config = settings()
@@ -55,6 +146,7 @@ function CielBard.Init()
     CielBard.windowOpen = config.showWindow ~= false
     CielBardEngine.Init(config)
     CielBard.initialized = true
+    flushIfDirty(true)
     if type(d) == "function" then
         d("[CielBard] Loaded v" .. CielBardData.Version)
         if not config.lockToolNoticeDismissed then
@@ -63,30 +155,101 @@ function CielBard.Init()
     end
 end
 
-local LOCK_TOOL_TEXT = "CielBard works on its own, but weaving gets noticeably better with an animation-lock tool. " ..
-    "XivAlexander (standalone, github.com/Soreepeong/XivAlexander) or NoClippy (Dalamud, github.com/UnknownX7/NoClippy) " ..
-    "remove your ping from the client's animation lock so double weaves fit cleanly inside the GCD. Run only one of them. " ..
-    "CielBard's polling is fast enough to use the shorter lock automatically; no setting needs changing."
+-- True when ACR is enabled with the CielBard profile selected. In that case
+-- ACR's own Cast() callback drives the engine and the standalone loop stays out.
+local lastACRReport = ""
+local acrProfileRequested = false
+local function drivenByACR()
+    -- Once ACR has loaded the CielBard profile stub, ACR owns execution: the
+    -- standalone loop never runs, even while ACR is disabled.
+    if acrProfileRequested then return true end
+    if type(ACR) ~= "table" or type(ACR.IsActive) ~= "function" then return false end
+    local ok, active, name = pcall(ACR.IsActive)
+    local report = tostring(ok) .. "/" .. tostring(active) .. "/" .. tostring(name)
+    if report ~= lastACRReport then
+        lastACRReport = report
+        if type(d) == "function" then d("[CielBard] ACR.IsActive -> ok=" .. tostring(ok) .. " active=" .. tostring(active) .. " name=" .. tostring(name)) end
+    end
+    if not ok or active ~= true then return false end
+    local label = type(name) == "table" and (name.name or name.alias) or name
+    if label == nil and type(ACR.GetActiveProfile) == "function" then
+        local okP, active = pcall(ACR.GetActiveProfile)
+        if okP then label = type(active) == "table" and (active.name or active.alias) or active end
+    end
+    -- ACR.IsActive reports no name on current builds; the selected-profile
+    -- table keyed by job is what other routines read.
+    if label == nil and type(gACRSelectedProfiles) == "table" and Player then
+        label = gACRSelectedProfiles[Player.job]
+    end
+    return tostring(label) == CielBardData.ACRProfileName
+end
+CielBard.drivenByACR = drivenByACR
 
-local function drawLockToolNotice(config)
-    if config.lockToolNoticeDismissed then return end
-    GUI:TextWrapped("For even better results: install XivAlexander or NoClippy.")
-    GUI:TextWrapped(LOCK_TOOL_TEXT)
-    if GUI:Button("Got it##cielbard-locktool", 90, 22) then config.lockToolNoticeDismissed = true end
-    GUI:SameLine()
-    GUI:Text("(details stay under 'Better weaving' below)")
-    GUI:Separator()
+local lastDecisionReport = ""
+local function reportDecision()
+    local decision = tostring(CielBardEngine.state.lastDecision)
+    if decision ~= lastDecisionReport then
+        lastDecisionReport = decision
+        if type(d) == "function" then d("[CielBard] decision: " .. decision) end
+    end
 end
 
 function CielBard.Update()
     if not CielBard.initialized then CielBard.Init() end
-    CielBardEngine.OnUpdate()
+    if not drivenByACR() then CielBardEngine.OnUpdate() end
+    reportDecision()
+    flushIfDirty(false)
 end
+
+-- ACR profile ------------------------------------------------------------------------
+-- A stub in LuaMods/ACR/CombatRoutines/CielBard.lua returns this table so the
+-- profile shows up in the ACR dropdown. ACR's Enabled toggle is the master
+-- switch in that mode; the window's "Execute rotation" applies to standalone use.
+
+local acrProfile = nil
+
+function CielBardACRProfile()
+    acrProfileRequested = true
+    if acrProfile then return acrProfile end
+    local profile = {}
+    profile.name = CielBardData.ACRProfileName
+    profile.GUI = { open = false, visible = true, name = "Ciel Bard" }
+    profile.region = { 1, 2, 3 }
+    profile.classes = { [CielBardData.BardJobID] = true }
+    profile.tags = "assistonly;grindmode;dungeons"
+
+    function profile.Cast()
+        if not CielBard.initialized then CielBard.Init() end
+        local cast = CielBardEngine.Step(true) == true
+        reportDecision()
+        return cast
+    end
+
+    function profile.Draw()
+        if profile.GUI.open then
+            CielBard.windowOpen = true
+            CielBard.DrawWindow()
+            profile.GUI.open = CielBard.windowOpen
+        end
+    end
+
+    function profile.DrawHeader() end
+    function profile.DrawFooter() end
+    function profile.OnOpen() profile.GUI.open = true end
+    function profile.OnLoad() if not CielBard.initialized then CielBard.Init() end end
+    function profile.OnClick(mouse, shiftState, controlState, altState, entity) end
+    function profile.OnUpdate(event, tickcount) flushIfDirty(false) end
+
+    acrProfile = profile
+    return profile
+end
+
+-- GUI helpers ----------------------------------------------------------------------------
 
 local function checkbox(label, key)
     local config = settings()
     local value, changed = GUI:Checkbox(label, config[key])
-    if changed then config[key] = value end
+    if changed then config[key] = value markDirty() end
 end
 
 local function customCheckbox(label, key)
@@ -95,6 +258,7 @@ local function customCheckbox(label, key)
     if changed then
         config[key] = value
         config.preset = "Custom"
+        markDirty()
     end
 end
 
@@ -105,6 +269,7 @@ local function abilityCheckbox(label, key)
     if changed then
         config.abilities[key] = value
         config.preset = "Custom"
+        markDirty()
     end
 end
 
@@ -124,6 +289,7 @@ local function applyPreset(name)
     config.automaticSongCycle = CielBardData.Defaults.automaticSongCycle
     merge(config, CielBardData.Presets[name] or {})
     config.preset = name
+    markDirty()
 end
 
 local function presetButton(label, name)
@@ -136,6 +302,7 @@ local function executionButton(label, mode)
     if GUI:Button(prefix .. label, 118, 23) then
         config.executionMode = mode
         config.preset = "Custom"
+        markDirty()
     end
 end
 
@@ -145,19 +312,22 @@ local function burstGateButton(label, mode)
     if GUI:Button(prefix .. label .. "##cielbard-gate-" .. mode, 118, 23) then
         config.burstDotGate = mode
         config.preset = "Custom"
+        markDirty()
     end
 end
 
 local function sliderInt(label, key, low, high)
     local config = settings()
-    local value = GUI:SliderInt(label, tonumber(config[key]) or low, low, high)
-    if value ~= nil then config[key] = value end
+    local current = tonumber(config[key]) or low
+    local value = GUI:SliderInt(label, current, low, high)
+    if value ~= nil and value ~= current then config[key] = value markDirty() end
 end
 
 local function sliderFloat(label, key, low, high)
     local config = settings()
-    local value = GUI:SliderFloat(label, tonumber(config[key]) or low, low, high)
-    if value ~= nil then config[key] = value end
+    local current = tonumber(config[key]) or low
+    local value = GUI:SliderFloat(label, current, low, high)
+    if value ~= nil and math.abs(value - current) > 1e-6 then config[key] = value markDirty() end
 end
 
 local function aoeSlider(label, key)
@@ -168,21 +338,40 @@ local function aoeSlider(label, key)
     if value ~= nil and value ~= current then
         config.aoeTargets[key] = value
         config.preset = "Custom"
+        markDirty()
     end
 end
 
-function CielBard.Draw()
-    if not CielBard.initialized then return end
-    local config = settings()
-    if not CielBard.windowOpen then return end
+local LOCK_TOOL_TEXT = "CielBard works on its own, but weaving gets noticeably better with an animation-lock tool. " ..
+    "XivAlexander (standalone, github.com/Soreepeong/XivAlexander) or NoClippy (Dalamud, github.com/UnknownX7/NoClippy) " ..
+    "remove your ping from the client's animation lock so double weaves fit cleanly inside the GCD. Run only one of them. " ..
+    "CielBard's polling is fast enough to use the shorter lock automatically; no setting needs changing."
 
-    GUI:SetNextWindowSize(420, 620, GUI.SetCond_FirstUseEver)
+local function drawLockToolNotice(config)
+    if config.lockToolNoticeDismissed then return end
+    GUI:TextWrapped("For even better results: install XivAlexander or NoClippy.")
+    GUI:TextWrapped(LOCK_TOOL_TEXT)
+    if GUI:Button("Got it##cielbard-locktool", 90, 22) then config.lockToolNoticeDismissed = true markDirty() end
+    GUI:SameLine()
+    GUI:Text("(details stay under 'Better weaving' below)")
+    GUI:Separator()
+end
+
+-- Window ---------------------------------------------------------------------------------
+
+function CielBard.DrawWindow()
+    local config = settings()
+    GUI:SetNextWindowSize(420, 640, GUI.SetCond_FirstUseEver)
     local visible
     visible, CielBard.windowOpen = GUI:Begin("Ciel Bard", CielBard.windowOpen)
-    config.showWindow = CielBard.windowOpen
+    if config.showWindow ~= CielBard.windowOpen then config.showWindow = CielBard.windowOpen markDirty() end
     if visible then
         drawLockToolNotice(config)
-        checkbox("Execute rotation", "enabled")
+        if drivenByACR() then
+            GUI:TextWrapped("Driven by ACR: the ACR Enabled toggle starts and stops the rotation. Remove LuaMods/ACR/CombatRoutines/CielBard.lua to run standalone.")
+        else
+            checkbox("Execute rotation", "enabled")
+        end
         GUI:SameLine()
         checkbox("Require combat", "requireCombat")
         checkbox("Use AoE replacements", "useAOE")
@@ -210,7 +399,11 @@ function CielBard.Draw()
         GUI:Text("Song: " .. tostring(CielBardEngine.state.currentSong) ..
             "  remaining: " .. string.format("%.1f", CielBardEngine.state.songRemaining or 0) ..
             "  codas: " .. tostring(CielBardEngine.CodaCount()))
-        GUI:Text("Enemies near target: " .. tostring(CielBardEngine.state.enemyCount or 1))
+        GUI:Text("Enemies near target: " .. tostring(CielBardEngine.state.enemyCount or 1) ..
+            "  GCD remaining: " .. string.format("%.2f", CielBardEngine.state.gcdRemaining or 0) ..
+            "  weaves: " .. tostring(CielBardEngine.state.weavesSinceGCD or 0))
+        GUI:Text("Heartbreak charges: " .. tostring(CielBardEngine.state.charges or "?") ..
+            "  next in: " .. string.format("%.1fs", CielBardEngine.state.chargeRemaining or 0))
         if config.multiDot then
             GUI:Text("Multi-dot target: " .. tostring(CielBardEngine.state.multiDotTargetName or "None"))
         end
@@ -233,6 +426,8 @@ function CielBard.Draw()
             sliderInt("Apex gauge in burst", "apexBurstGauge", 20, 100)
             sliderInt("Apex gauge off-cycle", "apexOffcycleGauge", 20, 100)
             sliderInt("Maximum weaves per GCD", "maxWeaves", 1, 2)
+            sliderFloat("Weave only if GCD remaining >= (s)", "weaveMinGcdRemaining", 0.3, 1.2)
+            sliderInt("Pool Heartbreak charges when burst within (s)", "chargePoolSeconds", 0, 45)
             GUI:Text("Burst waits for DoTs")
             burstGateButton("None", "NONE") GUI:SameLine()
             burstGateButton("At least one", "ONE") GUI:SameLine()
@@ -327,6 +522,7 @@ function CielBard.Draw()
             GUI:TextWrapped("Measured on a striking dummy, oGCD-to-oGCD gaps drop by roughly your round-trip time. Both tools stay above the real server lock.")
             if config.lockToolNoticeDismissed and GUI:Button("Show startup notice again##cielbard-locktool2", 200, 22) then
                 config.lockToolNoticeDismissed = false
+                markDirty()
             end
         end
 
@@ -355,11 +551,19 @@ function CielBard.Draw()
             CielBardEngine.ResetCombat("Manual reset")
         end
         GUI:SameLine()
-        if GUI:Button(config.enabled and "STOP" or "START", 100, 25) then
+        if not drivenByACR() and GUI:Button(config.enabled and "STOP" or "START", 100, 25) then
             config.enabled = not config.enabled
+            markDirty()
         end
     end
     GUI:End()
+end
+
+function CielBard.Draw()
+    if not CielBard.initialized then return end
+    if drivenByACR() then return end -- ACR draws the window through the profile
+    if not CielBard.windowOpen then return end
+    CielBard.DrawWindow()
 end
 
 RegisterEventHandler("Module.Initalize", CielBard.Init, "CielBard.Init")

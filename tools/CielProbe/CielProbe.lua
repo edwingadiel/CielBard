@@ -284,6 +284,10 @@ function CielProbe.Dump(reason)
         else
             out("ActionList:Get(1,16495) failed: " .. safeTostring(actionObj))
         end
+        local okHB, hb = pcall(function() return ActionList:Get(1, 36975) end)
+        if okHB then
+            probeObject("Action(HeartbreakShot 36975)", hb, { "id", "name", "cd", "cdmax", "recasttime", "isoncd", "isready", "charges", "maxcharges", "currentcharges", "chargecount", "maxcharge", "charge", "stacks", "maxstacks", "count", "uses", "remainingcharges", "cooldowncharges", "chargetime", "recastgroup", "cooldowngroup", "cdgroup", "isqueued", "queued", "usable", "highlighted", "statusgainedid", "lastused", "timesinceuse" })
+        end
         local okItem, itemAction = pcall(function() return ActionList:Get(2, 45996) end)
         if okItem then probeObject("Action(type2 item 45996)", itemAction, { "id", "name", "type", "cd", "cdmax", "isoncd", "isready" }) end
     end

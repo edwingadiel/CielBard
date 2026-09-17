@@ -4,7 +4,7 @@
 
 CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMinion. It was designed from an event-level analysis of the top 40 Bard parses for Vamp Fatale rather than from a single copied parse. The core conclusion was that high-end Bard play is a state-driven priority problem: procs, gauge, songs, target count, cooldown availability, and expected kill time change the best next action.
 
-The current release is **v0.4.0**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+The current release is **v0.5.0**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
 
 v0.4.0 added five behaviors on top of v0.3.0: opt-in potion use, coda-aware Radiant Finale, per-action AoE thresholds, a configurable DoT gate before the two-minute burst, and a multi-dot toggle. Each has regression cases in `tests/run_mock_tests.py`.
 
@@ -74,7 +74,11 @@ There was no universal top-parse cast string. This is why the module uses priori
 
 ### Initialization and settings
 
-`CielBard.lua` initializes `Settings.CielBard`, recursively fills missing defaults, and passes the live settings table to `CielBardEngine.Init`. Recursive copying is important because ability settings are nested and must not share mutable tables with global defaults.
+`CielBard.lua` keeps the live config in memory (a deep copy of `CielBardData.Defaults` with saved overrides applied) and passes it to `CielBardEngine.Init`. MMOMinion's `Settings` object is a database-backed proxy that rejects populated tables and proxy re-assignment ("I was too lazy to implement a copy function for the DB-Settings Table"), so the config is mirrored to `Settings.CielBard` as flat primitive keys such as `abilities.ApexArrow`. GUI helpers call `markDirty()`; `flushIfDirty` writes changed keys at most once per second. `tests/run_gui_tests.py` imitates the proxy and fails if a table is ever assigned into it.
+
+### ACR profile
+
+`CielBard/acr/CielBard.lua` is a drop-in stub for `LuaMods/ACR/CombatRoutines/` that returns `CielBardACRProfile()` from the module (the same pattern the bundled MCR stub uses). The profile's `Cast()` calls `CielBardEngine.Step(true)`, where ACR's Enabled toggle is the master switch and `config.enabled` is ignored. `Draw()` reuses the standalone window; `OnOpen()` maps to ACR's Profile Options. When `ACR.IsActive()` reports the CielBard profile, the standalone `Gameloop.Update` and `Gameloop.Draw` handlers stand down so the engine is never driven twice.
 
 The three registered handlers are:
 
@@ -331,9 +335,10 @@ Run from the repository root:
 ```bash
 python -m pip install -r tests/requirements.txt
 python tests/run_mock_tests.py
+python tests/run_gui_tests.py
 ```
 
-The suite currently verifies:
+`run_gui_tests.py` loads the GUI file against a mocked DB-settings proxy and checks flat persistence, reload round-trips, and the ACR profile contract. `run_mock_tests.py` currently verifies:
 
 - All Lua source files parse.
 - Optimized damage defaults remain active when advanced mode is off.

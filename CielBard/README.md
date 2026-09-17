@@ -43,13 +43,14 @@ Disabling Apex removes Apex pooling, disabling Iron Jaws switches enabled DoTs t
 ## Installation
 
 1. Copy the complete `CielBard` folder into the MMOMinion `LuaMods` directory for your FFXIV bot installation. The resulting folder must contain `module.def` directly.
-2. Reload Lua modules or restart MMOMinion.
-3. Change to Bard and open **Ciel Bard**.
-4. Before enabling execution, expand **Gauge diagnostics** on a training dummy:
+2. To run it as an ACR profile, also copy `CielBard/acr/CielBard.lua` to `LuaMods/ACR/CombatRoutines/CielBard.lua`. "CielBard" then appears in the ACR PVE Profile dropdown, and the ACR **Enabled** toggle starts and stops the rotation. **Profile Options** opens the Ciel Bard window. Without the stub, CielBard runs standalone from its own window.
+3. Reload Lua modules or restart MMOMinion.
+4. Change to Bard and open **Ciel Bard** (or select the CielBard ACR profile).
+5. Before enabling execution, expand **Gauge diagnostics** on a training dummy:
    - Confirm which `Player.gauge` entry rises from 0 to 100 as Soul Voice.
    - Confirm which entry reads 0–3 as Wanderer's Repertoire stacks.
    - Adjust the two index settings if the defaults differ on your client.
-5. Target a training dummy, enter combat, and enable **Execute rotation**.
+6. Target a training dummy, enter combat, and enable **Execute rotation** (standalone) or the ACR **Enabled** toggle (ACR mode).
 
 Execution is disabled by default.
 

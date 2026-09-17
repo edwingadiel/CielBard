@@ -601,6 +601,51 @@ E.state.multiDotScanAt = 0
 expect(E.TryGCD(ctx), "proc should cast")
 expect(lastCastID() == A.RefulgentArrow, "Refulgent should take priority over multi-dot")
 
+----------------------------------------------------------------------------
+-- Shared-charge count from the live cd/cdmax layout (cdmax = 45, recast = 15).
+----------------------------------------------------------------------------
+c = resetHarness()
+local hb = ActionList:Get(1, A.HeartbreakShot)
+hb.recasttime = 15
+hb.cdmax, hb.cd, hb.isoncd = 45, 30.5, true
+E.UpdateCharges()
+expect(E.state.charges == 2, "cd=30.5 of 45 should read as 2 charges")
+expect(math.abs(E.state.chargeRemaining - 14.5) < 0.01, "next charge should be 14.5s away")
+hb.cd = 7.7
+E.UpdateCharges()
+expect(E.state.charges == 0, "cd=7.7 of 45 should read as 0 charges")
+hb.cdmax, hb.cd, hb.isoncd = 0, 0, false
+E.UpdateCharges()
+expect(E.state.charges == 3 and E.state.chargeRemaining == 0, "off cooldown should be a full stack")
+
+-- Pooling: at 3 charges 20s before burst, spend one (it returns in time);
+-- at 2 charges 10s before burst, hold.
+c = resetHarness()
+hb = ActionList:Get(1, A.HeartbreakShot)
+hb.recasttime = 15
+hb.cdmax, hb.cd, hb.isoncd = 0, 0, false
+setReady(A.HeartbreakShot)
+E.UpdateCharges()
+ctx = directContext()
+ctx.nextBurst = 20
+E.state.weavesSinceGCD = 0
+expect(E.TryOGCD(ctx), "full stack 20s before burst should spend one")
+expect(lastCastID() == A.HeartbreakShot, "spent Heartbreak from a full stack")
+c = resetHarness()
+hb = ActionList:Get(1, A.HeartbreakShot)
+hb.recasttime = 15
+hb.cdmax, hb.cd, hb.isoncd = 45, 40, true
+setReady(A.HeartbreakShot)
+E.UpdateCharges()
+ctx = directContext()
+ctx.nextBurst = 10
+E.state.weavesSinceGCD = 0
+E.TryOGCD(ctx)
+expect(count(A.HeartbreakShot) == 0, "two charges 10s before burst should be held")
+ctx.nextBurst = 60
+E.state.weavesSinceGCD = 0
+expect(E.TryOGCD(ctx) and lastCastID() == A.HeartbreakShot, "outside the pooling window charges are spent on cooldown")
+
 -- Single-target preset switches multi-dot off through the normal merge path.
 c = resetHarness()
 for key, value in pairs(CielBardData.Presets.SingleTarget) do

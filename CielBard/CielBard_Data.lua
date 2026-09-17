@@ -1,7 +1,8 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.4.1"
+CielBardData.Version = "0.5.0"
 CielBardData.BardJobID = 23
+CielBardData.ACRProfileName = "CielBard"
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
 -- actions, cooldowns, and proc requirements at runtime.
@@ -72,9 +73,12 @@ CielBardData.GCD = {
     [36976] = true, [36977] = true,
 }
 
+-- Actions that must be requested on the player. Live clients report
+-- IsReady=false for these when asked about an enemy target (songs included).
 CielBardData.SelfTarget = {
     [101] = true, [107] = true, [118] = true, [25785] = true,
     [7541] = true, [7405] = true, [7408] = true, [3561] = true,
+    [3559] = true, [114] = true, [116] = true, -- Wanderer's Minuet, Mage's Ballad, Army's Paeon
 }
 
 CielBardData.Songs = {
@@ -140,11 +144,15 @@ CielBardData.Defaults = {
     requireCombat = true,
     pulseMs = 30,
     requestThrottleMs = 60,
-    timingVersion = 2,
+    timingVersion = 3,
     lockToolNoticeDismissed = false,
     maxWeaves = 2,
+    -- GCD is treated as ready this many seconds early so requests queue
+    -- without a gap; oGCDs are only weaved when at least this much GCD remains.
+    gcdLeadSeconds = 0.05,
+    weaveMinGcdRemaining = 0.65,
     executionMode = "FULL", -- FULL, GCD_ONLY, or OGCD_ONLY
-    requireLOS = true,
+    requireLOS = false, -- opt-in: live clients report los=false on dummies in plain view
 
     -- Normal users can ignore this switch and receive the optimized defaults.
     -- Per-ability controls and alternate presets only apply when it is enabled.
@@ -202,6 +210,9 @@ CielBardData.Defaults = {
     apexBurstGauge = 80,
     apexOffcycleGauge = 90,
     apexHoldForBurstSeconds = 35,
+    chargeCapLeadSeconds = 4.0, -- while pooling, spend the second charge when the third completes within this
+    chargePoolSeconds = 25, -- pool shared charges when the next burst is this close (the Army's Paeon tail)
+    chargeRechargeSeconds = 15, -- Heartbreak recharge; a full stack is spent while pooling only if it returns before burst
 
     secondWindHP = 45,
     minneHP = 60,
@@ -213,7 +224,7 @@ CielBardData.Defaults = {
     repertoireGaugeIndex = 2,
     songTimerGaugeIndex = 3,
 
-    debug = false,
+    debug = true, -- console timing trace once per second (live-test build)
 }
 
 -- Presets are deliberately small overrides applied on top of the optimized
