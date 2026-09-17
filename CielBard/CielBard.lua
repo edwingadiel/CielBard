@@ -38,12 +38,44 @@ local function settings()
     return Settings.CielBard
 end
 
+local TIMING_VERSION = 2
+
+-- Pulse/throttle defaults were tightened in 0.4.1. Saved settings only fill
+-- missing keys, so migrate once; users who tuned them afterwards keep theirs.
+local function migrateTiming(config)
+    if (tonumber(config.timingVersion) or 1) >= TIMING_VERSION then return end
+    config.pulseMs = CielBardData.Defaults.pulseMs
+    config.requestThrottleMs = CielBardData.Defaults.requestThrottleMs
+    config.timingVersion = TIMING_VERSION
+end
+
 function CielBard.Init()
     local config = settings()
+    migrateTiming(config)
     CielBard.windowOpen = config.showWindow ~= false
     CielBardEngine.Init(config)
     CielBard.initialized = true
-    if type(d) == "function" then d("[CielBard] Loaded v" .. CielBardData.Version) end
+    if type(d) == "function" then
+        d("[CielBard] Loaded v" .. CielBardData.Version)
+        if not config.lockToolNoticeDismissed then
+            d("[CielBard] Tip: for better weaving, run XivAlexander (standalone) or NoClippy (Dalamud) alongside the bot. See the notice in the Ciel Bard window.")
+        end
+    end
+end
+
+local LOCK_TOOL_TEXT = "CielBard works on its own, but weaving gets noticeably better with an animation-lock tool. " ..
+    "XivAlexander (standalone, github.com/Soreepeong/XivAlexander) or NoClippy (Dalamud, github.com/UnknownX7/NoClippy) " ..
+    "remove your ping from the client's animation lock so double weaves fit cleanly inside the GCD. Run only one of them. " ..
+    "CielBard's polling is fast enough to use the shorter lock automatically; no setting needs changing."
+
+local function drawLockToolNotice(config)
+    if config.lockToolNoticeDismissed then return end
+    GUI:TextWrapped("For even better results: install XivAlexander or NoClippy.")
+    GUI:TextWrapped(LOCK_TOOL_TEXT)
+    if GUI:Button("Got it##cielbard-locktool", 90, 22) then config.lockToolNoticeDismissed = true end
+    GUI:SameLine()
+    GUI:Text("(details stay under 'Better weaving' below)")
+    GUI:Separator()
 end
 
 function CielBard.Update()
@@ -149,6 +181,7 @@ function CielBard.Draw()
     visible, CielBard.windowOpen = GUI:Begin("Ciel Bard", CielBard.windowOpen)
     config.showWindow = CielBard.windowOpen
     if visible then
+        drawLockToolNotice(config)
         checkbox("Execute rotation", "enabled")
         GUI:SameLine()
         checkbox("Require combat", "requireCombat")
@@ -287,6 +320,14 @@ function CielBard.Draw()
             GUI:Separator()
             GUI:Text("Configuration warnings")
             for _, warning in ipairs(warnings) do GUI:TextWrapped("- " .. warning) end
+        end
+
+        if GUI:CollapsingHeader("Better weaving (optional tools)") then
+            GUI:TextWrapped(LOCK_TOOL_TEXT)
+            GUI:TextWrapped("Measured on a striking dummy, oGCD-to-oGCD gaps drop by roughly your round-trip time. Both tools stay above the real server lock.")
+            if config.lockToolNoticeDismissed and GUI:Button("Show startup notice again##cielbard-locktool2", 200, 22) then
+                config.lockToolNoticeDismissed = false
+            end
         end
 
         if GUI:CollapsingHeader("Gauge diagnostics") then

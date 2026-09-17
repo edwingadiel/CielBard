@@ -287,6 +287,12 @@ Runtime safeguards include:
 - Disabled dependencies never block downstream legal actions.
 - TTK confidence gating.
 
+## Animation lock: what was learned
+
+The MMOMinion Lua API cannot change the client's animation lock. The sandbox has no FFI, no `require`, and no process launching; `Hacks` has no lock function; and the encrypted "core" addons on the store (MadaoCore, CypherCore, and others) are pure Lua libraries. Rikudou's "Zero Ping Enabled" works because his TensorCore ships a native DLL loaded through `MinionFiles`, a partner arrangement with MMOMinion. Measured on a dummy with the CielProbe cast logger, his option cut oGCD-to-oGCD gaps from a 719 ms median to 640 ms and in some cases below 440 ms, which is under the real server lock.
+
+Decision: CielBard does not ship a lock hack. The READMEs recommend XivAlexander (standalone) or NoClippy (Dalamud) as optional companions; both stay above the real server lock. CielBard's pulse (30 ms) and request throttle (60 ms) were tightened in 0.4.1 so it benefits automatically. A native CielBard component is only worth pursuing if MMOMinion grants a partner DLL slot; a request has been sent. The `tools/CielProbe` module is the read-only API dumper and cast-timing logger used for this investigation.
+
 ## Installation and first live test
 
 1. Copy the complete `CielBard` folder into the FFXIVMinion/MMOMinion `LuaMods` directory.

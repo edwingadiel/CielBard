@@ -1,0 +1,6 @@
+[Module]
+Name=CielProbe
+Version=0.1.0
+Files=CielProbe.lua
+Dependencies=minionlib
+Enabled=1

@@ -1,6 +1,6 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.4.0"
+CielBardData.Version = "0.4.1"
 CielBardData.BardJobID = 23
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
@@ -138,8 +138,10 @@ CielBardData.Defaults = {
     useAOE = true,
     aoeTargets = CielBardData.AoEDefaults,
     requireCombat = true,
-    pulseMs = 60,
-    requestThrottleMs = 125,
+    pulseMs = 30,
+    requestThrottleMs = 60,
+    timingVersion = 2,
+    lockToolNoticeDismissed = false,
     maxWeaves = 2,
     executionMode = "FULL", -- FULL, GCD_ONLY, or OGCD_ONLY
     requireLOS = true,

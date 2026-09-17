@@ -21,6 +21,10 @@ Important live-test items are Bard gauge index calibration, song-state detection
 
 The top-40 sample did not reveal one universal perfect string. The strongest repeatable signals were higher GCD throughput, deliberate song allocation, correct AoE charge conversion, preservation of two-minute cooldown uses, and favorable kill timing. The engine therefore adapts to procs, resources, nearby targets, and estimated time to kill.
 
+## Better weaving with an animation-lock tool
+
+CielBard needs nothing extra, but weaving improves noticeably if you run [XivAlexander](https://github.com/Soreepeong/XivAlexander) (standalone) or [NoClippy](https://github.com/UnknownX7/NoClippy) (Dalamud) alongside the bot. They take your ping out of the client's animation lock, and CielBard's polling is fast enough to use the shorter lock automatically. See `CielBard/README.md` for details.
+
 ## Credentials and raw data
 
 FFLogs credentials are read from environment variables. Secrets, `.env` files, cached raw event exports, local reference checkouts, screenshots, and generated archives are intentionally excluded from version control.

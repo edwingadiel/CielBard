@@ -53,6 +53,15 @@ Disabling Apex removes Apex pooling, disabling Iron Jaws switches enabled DoTs t
 
 Execution is disabled by default.
 
+## Optional: reduce animation lock for better weaving
+
+CielBard works on its own. For even better results, run an animation-lock compensation tool alongside it. These tools remove your ping from the client's animation lock, so double weaves fit cleanly inside the GCD even at 80–150 ms latency:
+
+- [XivAlexander](https://github.com/Soreepeong/XivAlexander): standalone, no Dalamud needed. The simplest choice next to MMOMinion.
+- [NoClippy](https://github.com/UnknownX7/NoClippy): a Dalamud plugin that does the same thing without ping or opcodes. Only for setups that already run Dalamud.
+
+Run only one of them. Both are designed to simulate low ping without sending actions earlier than the real server lock allows. CielBard's request throttle and pulse rate (60 ms and 30 ms by default) are low enough to take advantage of the shorter lock automatically. Measured on a striking dummy, oGCD-to-oGCD gaps drop by roughly your round-trip time.
+
 ## First test checklist
 
 - Stormbite lands, Wanderer's starts, and Raging Strikes follows the first DoT (the default **At least one** gate).
