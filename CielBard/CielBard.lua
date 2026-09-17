@@ -79,7 +79,11 @@ end
 local function applyPreset(name)
     local config = settings()
     config.abilities = deepCopy(CielBardData.AbilityDefaults)
+    config.aoeTargets = deepCopy(CielBardData.AoEDefaults)
     config.useAOE = CielBardData.Defaults.useAOE
+    config.multiDot = CielBardData.Defaults.multiDot
+    config.burstDotGate = CielBardData.Defaults.burstDotGate
+    config.radiantFinaleMinCodas = CielBardData.Defaults.radiantFinaleMinCodas
     config.maxWeaves = CielBardData.Defaults.maxWeaves
     config.executionMode = CielBardData.Defaults.executionMode
     config.snapshotIronJaws = CielBardData.Defaults.snapshotIronJaws
@@ -103,6 +107,15 @@ local function executionButton(label, mode)
     end
 end
 
+local function burstGateButton(label, mode)
+    local config = settings()
+    local prefix = config.burstDotGate == mode and "[x] " or "[ ] "
+    if GUI:Button(prefix .. label .. "##cielbard-gate-" .. mode, 118, 23) then
+        config.burstDotGate = mode
+        config.preset = "Custom"
+    end
+end
+
 local function sliderInt(label, key, low, high)
     local config = settings()
     local value = GUI:SliderInt(label, tonumber(config[key]) or low, low, high)
@@ -115,12 +128,23 @@ local function sliderFloat(label, key, low, high)
     if value ~= nil then config[key] = value end
 end
 
+local function aoeSlider(label, key)
+    local config = settings()
+    config.aoeTargets = config.aoeTargets or {}
+    local current = tonumber(config.aoeTargets[key]) or tonumber(CielBardData.AoEDefaults[key]) or 2
+    local value = GUI:SliderInt(label .. "##cielbard-aoe-" .. key, current, 1, 6)
+    if value ~= nil and value ~= current then
+        config.aoeTargets[key] = value
+        config.preset = "Custom"
+    end
+end
+
 function CielBard.Draw()
     if not CielBard.initialized then return end
     local config = settings()
     if not CielBard.windowOpen then return end
 
-    GUI:SetNextWindowSize(420, 560, GUI.SetCond_FirstUseEver)
+    GUI:SetNextWindowSize(420, 620, GUI.SetCond_FirstUseEver)
     local visible
     visible, CielBard.windowOpen = GUI:Begin("Ciel Bard", CielBard.windowOpen)
     config.showWindow = CielBard.windowOpen
@@ -129,14 +153,34 @@ function CielBard.Draw()
         GUI:SameLine()
         checkbox("Require combat", "requireCombat")
         checkbox("Use AoE replacements", "useAOE")
-        sliderInt("AoE target threshold", "minAOETargets", 2, 5)
+        if config.useAOE then
+            aoeSlider("Ladonsbite targets", "Ladonsbite")
+            aoeSlider("Shadowbite targets", "Shadowbite")
+            aoeSlider("Rain of Death targets", "RainOfDeath")
+        end
+        checkbox("Multi-dot nearby enemies", "multiDot")
+        if config.multiDot then
+            sliderInt("Multi-dot max extra targets", "multiDotMaxTargets", 1, 6)
+            sliderInt("Multi-dot minimum target HP%", "multiDotMinHPPercent", 0, 90)
+        end
+        checkbox("Use Gemdraught of Dexterity", "usePotion")
+        if config.usePotion then
+            checkbox("Only with burst", "potionOnlyWithBurst")
+            GUI:SameLine()
+            checkbox("HQ only", "potionHQOnly")
+            GUI:Text("Potion found: " .. tostring(CielBardEngine.state.potionName or "None"))
+        end
 
         GUI:Separator()
         GUI:Text("Current decision: " .. tostring(CielBardEngine.state.lastDecision))
         GUI:Text("Last action: " .. tostring(CielBardEngine.state.lastActionName))
         GUI:Text("Song: " .. tostring(CielBardEngine.state.currentSong) ..
-            "  remaining: " .. string.format("%.1f", CielBardEngine.state.songRemaining or 0))
+            "  remaining: " .. string.format("%.1f", CielBardEngine.state.songRemaining or 0) ..
+            "  codas: " .. tostring(CielBardEngine.CodaCount()))
         GUI:Text("Enemies near target: " .. tostring(CielBardEngine.state.enemyCount or 1))
+        if config.multiDot then
+            GUI:Text("Multi-dot target: " .. tostring(CielBardEngine.state.multiDotTargetName or "None"))
+        end
 
         local ttk = CielBardEngine.state.ttk
         GUI:Text("Estimated TTK: " .. (ttk and string.format("%.1fs", ttk) or "learning/unknown"))
@@ -156,6 +200,13 @@ function CielBard.Draw()
             sliderInt("Apex gauge in burst", "apexBurstGauge", 20, 100)
             sliderInt("Apex gauge off-cycle", "apexOffcycleGauge", 20, 100)
             sliderInt("Maximum weaves per GCD", "maxWeaves", 1, 2)
+            GUI:Text("Burst waits for DoTs")
+            burstGateButton("None", "NONE") GUI:SameLine()
+            burstGateButton("At least one", "ONE") GUI:SameLine()
+            burstGateButton("Both", "BOTH")
+            sliderInt("Radiant Finale minimum codas", "radiantFinaleMinCodas", 1, 3)
+            sliderFloat("Let an imminent song add a coda (s)", "radiantFinaleCodaHold", 0, 5)
+            sliderInt("Potion minimum TTK", "potionMinimumTTK", 0, 30)
         end
 
         if GUI:CollapsingHeader("Advanced customization") then
@@ -191,6 +242,7 @@ function CielBard.Draw()
                     abilityCheckbox("Caustic Bite", "CausticBite")
                     abilityCheckbox("Iron Jaws", "IronJaws")
                     customCheckbox("Late-buff Iron Jaws snapshot", "snapshotIronJaws")
+                    customCheckbox("Multi-dot nearby enemies", "multiDot")
                 end
                 if GUI:CollapsingHeader("Burst buffs - Auto / Off") then
                     abilityCheckbox("Raging Strikes", "RagingStrikes")
@@ -227,14 +279,14 @@ function CielBard.Draw()
                     sliderInt("Troubadour below HP%", "troubadourHP", 10, 95)
                     abilityCheckbox("Warden's Paean for dispellable debuff", "WardensPaean")
                 end
-
-                local warnings = CielBardEngine.GetConfigurationWarnings()
-                if #warnings > 0 then
-                    GUI:Separator()
-                    GUI:Text("Configuration warnings")
-                    for _, warning in ipairs(warnings) do GUI:TextWrapped("- " .. warning) end
-                end
             end
+        end
+
+        local warnings = CielBardEngine.GetConfigurationWarnings()
+        if #warnings > 0 then
+            GUI:Separator()
+            GUI:Text("Configuration warnings")
+            for _, warning in ipairs(warnings) do GUI:TextWrapped("- " .. warning) end
         end
 
         if GUI:CollapsingHeader("Gauge diagnostics") then
@@ -243,12 +295,19 @@ function CielBard.Draw()
             sliderInt("Song timer gauge index", "songTimerGaugeIndex", 1, 8)
             GUI:Text("Selected Soul Voice: " .. tostring(CielBardEngine.GetSoulVoice()))
             GUI:Text("Selected Repertoire: " .. tostring(CielBardEngine.GetRepertoire()))
+            GUI:Text("Tracked codas: " .. tostring(CielBardEngine.CodaCount()) ..
+                "  (WM=" .. tostring(CielBardEngine.state.codas.WM) ..
+                " MB=" .. tostring(CielBardEngine.state.codas.MB) ..
+                " AP=" .. tostring(CielBardEngine.state.codas.AP) .. ")")
             if Player and Player.gauge then
                 for index = 1, 8 do
                     GUI:Text("Gauge[" .. index .. "] = " .. tostring(Player.gauge[index]))
                 end
             end
-            GUI:TextWrapped("Verify the index that moves from 0 to 100 as Soul Voice and the 0-3 index as Repertoire, then set them above.")
+            GUI:TextWrapped("Verify the index that moves from 0 to 100 as Soul Voice and the 0-3 index as Repertoire, then set them above. Codas are tracked locally from observed song casts and clear on Radiant Finale.")
+            if GUI:Button("Rescan potion inventory", 170, 23) then
+                CielBardEngine.RefreshPotion(true)
+            end
         end
 
         if GUI:Button("Reset combat state", 170, 25) then

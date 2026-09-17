@@ -4,7 +4,9 @@
 
 CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMinion. It was designed from an event-level analysis of the top 40 Bard parses for Vamp Fatale rather than from a single copied parse. The core conclusion was that high-end Bard play is a state-driven priority problem: procs, gauge, songs, target count, cooldown availability, and expected kill time change the best next action.
 
-The current release is **v0.3.0**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+The current release is **v0.4.0**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+
+v0.4.0 added five behaviors on top of v0.3.0: opt-in potion use, coda-aware Radiant Finale, per-action AoE thresholds, a configurable DoT gate before the two-minute burst, and a multi-dot toggle. Each has regression cases in `tests/run_mock_tests.py`.
 
 Repository: <https://github.com/edwingadiel/CielBard>
 
@@ -21,6 +23,11 @@ Implemented:
 - Presets and partial-execution modes.
 - Configuration warnings and safe fallback behavior.
 - Opt-in utility rules.
+- Opt-in Gemdraught of Dexterity use weaved before Raging Strikes.
+- Coda tracking and coda-aware Radiant Finale timing.
+- Per-action AoE thresholds for Ladonsbite, Shadowbite, and Rain of Death.
+- Configurable DoT gate (NONE / ONE / BOTH) before starting the two-minute burst.
+- Multi-dot maintenance on additional engaged enemies, with a toggle.
 - Lua parsing and mocked-runtime invariant tests.
 
 Still required:
@@ -40,7 +47,7 @@ Still required:
 | `CielBard/CielBard_Data.lua` | Action/status IDs, defaults, ability capabilities, and presets. |
 | `CielBard/CielBard_Rotation.lua` | Runtime state, TTK estimator, context builder, priorities, casting, and safeguards. |
 | `CielBard/CielBard.lua` | Initialization, persisted settings, presets, and GUI. |
-| `CielBard/module.def` | MMOMinion module manifest; currently version 0.3.0. |
+| `CielBard/module.def` | MMOMinion module manifest; currently version 0.4.0. |
 | `bard-analysis/` | Sanitized FFLogs collection and analysis scripts. |
 | `bard-analysis/output/merged-report.md` | Best single summary of the research and recommended policy. |
 | `tests/run_mock_tests.py` | Lua parser and mocked-MMOMinion invariant suite. |
@@ -117,10 +124,11 @@ The current broad order is:
 3. Use Apex Arrow at its context-sensitive gauge threshold unless it should be pooled for an imminent enabled burst.
 4. Snapshot or refresh both DoTs with Iron Jaws when enabled and legal.
 5. If Iron Jaws is disabled or only one DoT is enabled, refresh enabled DoTs individually.
-6. Consume remaining Radiant Encore and Refulgent Arrow procs.
-7. Use enabled AoE replacements when the target threshold is met.
-8. Use Burst Shot.
-9. Fall back to Heavy Shot for level sync.
+6. Consume remaining Radiant Encore, Shadowbite (at its own target threshold), and Refulgent Arrow procs.
+7. Apply or refresh DoTs on a secondary engaged enemy when multi-dot is enabled.
+8. Use Ladonsbite when its target threshold is met.
+9. Use Burst Shot.
+10. Fall back to Heavy Shot for level sync.
 
 Burst Shot and Heavy Shot are deliberately non-configurable safety fillers. The master execution switch is the supported way to stop all offensive execution.
 
@@ -130,8 +138,8 @@ The engine first enforces the configured weave limit, then broadly prioritizes:
 
 1. Enabled utility whose rule is currently satisfied.
 2. Song start or enabled-song transition.
-3. Starting an available enabled burst package when song and DoT conditions permit it.
-4. During burst: party buffs, Barrage, Pitch Perfect, Empyreal Arrow, Sidewinder, and shared-charge spenders.
+3. Starting an available enabled burst package when the song condition and the configured DoT gate permit it. With potion use on, the potion is weaved first in the same window so Raging Strikes follows it.
+4. During burst: Battle Voice, Radiant Finale (only with at least one tracked coda), Barrage, Pitch Perfect, Empyreal Arrow, Sidewinder, and shared-charge spenders.
 5. Outside burst: Pitch Perfect overcap/song-end protection, Empyreal Arrow on cooldown unless briefly held, then near-cap shared charges unless held for burst.
 
 Refulgent Arrow is normally cleared before Barrage. If Refulgent itself is disabled, Barrage is allowed to proceed rather than waiting forever.
@@ -160,6 +168,14 @@ Stormbite and Caustic Bite are established only when expected target lifetime ex
 
 If Iron Jaws is disabled, the engine individually refreshes each enabled DoT. If both DoTs are disabled or the target is near death, direct-damage GCDs continue normally.
 
+#### Multi-dot
+
+`multiDot` (default on; off in the Conservative, No DoTs, and Single target presets) keeps both enabled DoTs on up to `multiDotMaxTargets` additional enemies. Candidates come from `EntityList("alive,attackable,incombat,maxdistance=25")`, must be targetable, in line of sight, and at or above `multiDotMinHPPercent`, and are ranked by current HP so the longest-lived adds are dotted first. Secondary DoTs sit after proc consumption and before Ladonsbite/Burst Shot in the GCD order, are suppressed in the terminal and ideal-finish bands, and are cast directly on the entity so the player's current target never changes. Iron Jaws is used on a secondary target when both DoTs are present and one is expiring.
+
+#### Burst DoT gate
+
+`burstDotGate` controls what Raging Strikes waits for: `NONE`, `ONE` (default: at least one enabled DoT is active), or `BOTH` (the v0.3 behavior, used by the Conservative preset). The gate is bypassed in the terminal band and when TTK is below `dotMinimumTTK`. `ONE` reproduces the standard opener where Raging Strikes follows the first DoT and Caustic Bite lands under it.
+
 ### Burst and resource pooling
 
 The engine treats any enabled Raging Strikes, Battle Voice, or Radiant Finale as a configured major burst anchor. If Raging Strikes is disabled, Battle Voice or Radiant Finale can establish the local burst window so related priorities still function.
@@ -171,9 +187,21 @@ Pooling occurs only when it serves an enabled future burst:
 - Shared-charge spenders receive a longer pre-burst hold while still protecting against charge loss.
 - Disabling all major burst actions removes those burst-specific holds.
 
+### Radiant Finale and codas
+
+Codas are tracked locally in `state.codas` from every observed or requested song cast and cleared whenever Radiant Finale is observed or requested. They are not read from the gauge because the array layout is unverified. `E.RadiantFinaleAllowed` enforces:
+
+- Never request Radiant Finale at zero codas (the game would reject it and the engine would spam a failed request).
+- Fire at one coda in the opener; holding for more codas loses a use over the fight, so `radiantFinaleMinCodas` defaults to 1 and the GUI warns when it is raised.
+- If the next enabled song is due within `radiantFinaleCodaHold` seconds (default 2.0) and would add a new coda, let the song land first. Skipped in the terminal and ideal-finish bands.
+
+### Potion
+
+`usePotion` is off by default because it consumes inventory. When on, `E.RefreshPotion` scans (at most every five seconds) for the potions in `CielBardData.Potions`, newest grade first and HQ (`id + 1000000`) before NQ, using FFXIVMinion's `GetItem(hqid, bags)` helper or a direct `Inventory:Get(bag):GetItem(slot)` scan. `E.TryPotion` calls `item:Cast(Player.id)`, counts the animation lock as one weave, and ignores the later `lastcastid` echo for that item action. The potion is requested only when a burst is startable in the current weave window and a second weave slot remains for Raging Strikes, unless `potionOnlyWithBurst` is off. It is skipped when TTK is below `potionMinimumTTK`. Because the potion recast is 270 seconds and bursts are 120 seconds apart, the natural alignment is opener, 6:00, and 12:00.
+
 ### AoE
 
-`useAOE` and `minAOETargets` control AoE replacement behavior. Enemies are counted within five yalms of the current target. Rain of Death is preferred over Heartbreak Shot in eligible cleave, while Shadowbite and Ladonsbite/Quick Nock are used as enabled and available.
+`useAOE` is the master switch; `aoeTargets` holds a per-action nearby-target threshold for `Ladonsbite`, `Shadowbite`, and `RainOfDeath` (all default 2). Enemies are counted within five yalms of the current target. With current potencies (Ladonsbite 140 per target vs Burst Shot 220, Shadowbite 200 vs Refulgent 280, Rain of Death 100 vs Heartbreak Shot 180) every replacement is a gain at two targets, but the thresholds stay separate because Shadowbite and Rain of Death use a five-yalm circle while Ladonsbite is a cone. `E.AoEAllowed(key, ctx)` is the single gate for these actions.
 
 Target counting and encounter-specific target selection require live validation.
 
@@ -243,6 +271,9 @@ These rules are scaffolding, not encounter-grade utility logic. Warden's debuff-
 - Resonant enabled while Barrage is disabled.
 - Radiant Encore enabled while Radiant Finale is disabled.
 - Iron Jaws enabled without both DoTs.
+- Multi-dot enabled with both DoTs off.
+- Radiant Finale minimum codas above 1.
+- Potion use enabled with no Gemdraught of Dexterity found (shown even outside advanced mode).
 - oGCD-only mode without an internal GCD driver.
 
 Runtime safeguards include:
@@ -307,6 +338,11 @@ The suite currently verifies:
 - No-DoT configurations continue direct damage.
 - Heavy Shot remains the final level-sync fallback.
 - GCD-only mode cannot emit an oGCD while the GCD is locked.
+- Ladonsbite, Shadowbite, and Rain of Death each honor their own target threshold.
+- The burst DoT gate behaves correctly in NONE, ONE, and BOTH modes.
+- Codas accumulate from observed songs and clear on Radiant Finale; Finale is never requested at zero codas, fires at one coda, holds for an imminent coda-adding song, and ignores the hold in the terminal band.
+- The potion is weaved before Raging Strikes with HQ preferred, counts as a weave, and is skipped when off, on cooldown, missing (with a warning), or under the TTK floor.
+- Multi-dot applies Stormbite to an engaged secondary target, uses Iron Jaws when both DoTs are expiring there, and skips idle, low-HP, or already-dotted targets, kill-near bands, and the Off toggle; procs still win.
 
 Add a regression case whenever a new toggle, dependency, or fallback branch is introduced.
 
@@ -324,6 +360,9 @@ The following depend on undocumented or version-sensitive MMOMinion behavior:
 - Dispellable-debuff field names used by Warden's Paean.
 - `target.los`, distance, and entity-query behavior.
 - How quickly last-cast observation updates relative to animation lock.
+- The `incombat` EntityList filter and `entity.incombat` field used by multi-dot.
+- `GetItem` / `Inventory:Get(bag):GetItem(slot)` results, `item.hqid`, `item:IsReady`, `item:Cast`, and whether the item action's `id` appears in `lastcastid` (potion weave accounting).
+- Whether casting a DoT on a non-targeted entity changes the player's target on the live client.
 
 Song tracking contains a local 45-second timer fallback if status detection is unavailable, but live status detection is preferred.
 
@@ -351,9 +390,10 @@ Song tracking contains a local 45-second timer fallback if status detection is u
 2. Improve charge tracking and overcap prediction.
 3. Model expected Apex generation before the next burst.
 4. Add party-buff awareness where MMOMinion exposes it reliably.
-5. Improve AoE target valuation using target-level potency rather than a simple count.
-6. Make TTK phase-aware and resistant to downtime or target swaps.
-7. Add a fight-ending score that compares DoT, direct GCD, and resource-dump value.
+5. Improve AoE target valuation using target-level potency rather than a simple count, and estimate per-add time to kill for multi-dot instead of the HP-percent floor.
+6. Read codas from the gauge once its layout is calibrated, as a cross-check for the local tracker.
+7. Make TTK phase-aware and resistant to downtime or target swaps.
+8. Add a fight-ending score that compares DoT, direct GCD, and resource-dump value.
 
 ### Finally: usability
 

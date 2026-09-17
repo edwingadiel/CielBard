@@ -9,7 +9,9 @@ CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMi
 
 ## Current status
 
-Version 0.3.0 is a training-dummy MVP. The Lua files pass offline parsing and mocked-runtime invariant tests, but the module has not yet been validated in a live MMOMinion client. Execution is disabled by default.
+Version 0.4.0 is a training-dummy MVP. The Lua files pass offline parsing and mocked-runtime invariant tests, but the module has not yet been validated in a live MMOMinion client. Execution is disabled by default.
+
+Version 0.4.0 adds opt-in Gemdraught of Dexterity use weaved before Raging Strikes, coda-aware Radiant Finale timing, per-action AoE target thresholds, a configurable DoT gate for the two-minute burst, and a multi-dot toggle that keeps DoTs on additional engaged enemies.
 
 The optimized setup remains the zero-configuration experience. An opt-in advanced panel adds presets and per-ability Auto/Off controls; the engine recalculates holds, song cycles, DoT maintenance, burst behavior, and fallback actions around the enabled set rather than assuming every button is available.
 

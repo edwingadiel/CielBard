@@ -1,6 +1,6 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.3.0"
+CielBardData.Version = "0.4.0"
 CielBardData.BardJobID = 23
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
@@ -53,6 +53,16 @@ CielBardData.Statuses = {
     CausticBite = 1200,
     Stormbite = 1201,
 }
+
+-- Dexterity potions in preference order (newest grade first). MMOMinion
+-- addresses HQ items as id + 1000000; the engine tries HQ before NQ.
+CielBardData.Potions = {
+    { id = 49235, name = "Grade 4 Gemdraught of Dexterity" },
+    { id = 45996, name = "Grade 3 Gemdraught of Dexterity" },
+    { id = 44163, name = "Grade 2 Gemdraught of Dexterity" },
+    { id = 44158, name = "Grade 1 Gemdraught of Dexterity" },
+}
+CielBardData.HQOffset = 1000000
 
 CielBardData.GCD = {
     [97] = true, [100] = true, [106] = true,
@@ -111,11 +121,22 @@ CielBardData.AbilityDefaults = {
     WardensPaean = false,
 }
 
+-- Per-action nearby-target thresholds for AoE replacements. With current
+-- potencies every replacement is a gain at two targets:
+--   Ladonsbite 140/target vs Burst Shot 220, Shadowbite 200/target vs
+--   Refulgent 280, Rain of Death 100/target vs Heartbreak Shot 180.
+-- They stay separately tunable because radius and positioning differ.
+CielBardData.AoEDefaults = {
+    Ladonsbite = 2,
+    Shadowbite = 2,
+    RainOfDeath = 2,
+}
+
 CielBardData.Defaults = {
     enabled = false,
     showWindow = true,
     useAOE = true,
-    minAOETargets = 2,
+    aoeTargets = CielBardData.AoEDefaults,
     requireCombat = true,
     pulseMs = 60,
     requestThrottleMs = 125,
@@ -142,6 +163,33 @@ CielBardData.Defaults = {
     dotRefreshSeconds = 3.0,
     dotMinimumTTK = 18,
     snapshotIronJaws = true,
+
+    -- Multi-dotting: keep both DoTs on additional engaged enemies that will
+    -- live long enough to pay back the application GCD. Secondary targets are
+    -- cast on directly; the player's current target is left alone.
+    multiDot = true,
+    multiDotMaxTargets = 3,
+    multiDotMinHPPercent = 30,
+
+    -- How much DoT coverage a two-minute burst waits for before Raging
+    -- Strikes: NONE, ONE (at least one enabled DoT active), or BOTH.
+    -- ONE matches the standard opener where Raging follows the first DoT.
+    burstDotGate = "ONE",
+
+    -- Radiant Finale scales with tracked codas (2/4/6%). It is never
+    -- requested at zero codas, and a song that is about to be cast anyway is
+    -- allowed to land first when it would add a coda. Holding beyond one coda
+    -- risks losing a use, so the minimum stays at 1 unless the user raises it.
+    radiantFinaleMinCodas = 1,
+    radiantFinaleCodaHold = 2.0,
+
+    -- Potion use is opt-in because it consumes inventory. When enabled the
+    -- engine weaves the best available Gemdraught of Dexterity immediately
+    -- before Raging Strikes so the 30s effect covers the whole buff window.
+    usePotion = false,
+    potionOnlyWithBurst = true,
+    potionHQOnly = false,
+    potionMinimumTTK = 8,
 
     -- Empirical top-10 transition timings from the Vamp Fatale study.
     -- Songs last 45 seconds, so these are remaining-time thresholds.
@@ -175,16 +223,20 @@ CielBardData.Presets = {
         snapshotIronJaws = false,
         terminalDumping = false,
         resourcePooling = false,
+        multiDot = false,
+        burstDotGate = "BOTH",
     },
     NoPartyBuffs = {
         abilities = { BattleVoice = false, RadiantFinale = false },
     },
     NoDots = {
         snapshotIronJaws = false,
+        multiDot = false,
         abilities = { Stormbite = false, CausticBite = false, IronJaws = false },
     },
     SingleTarget = {
         useAOE = false,
+        multiDot = false,
         abilities = { RainOfDeath = false, Ladonsbite = false, Shadowbite = false },
     },
     GCDOnly = {
