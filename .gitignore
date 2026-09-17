@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.zip
+
+# Raw/private or bulky research inputs
+bard-analysis/output/events/
+bard-analysis/output/luna/luna-summary.json
+bard-analysis/output/killtime/killtime.json
+
+# Workspace-only references and attachments
+reference-ffxivminion/
+upload/
