@@ -36,26 +36,69 @@ All four entry points are modules, so they are run with `-m` from the repository
 ```
 
 ```
-CielBard sim 1.0.0 | engine 0.5.0
-fight    510.0s  seed=1  ping=0ms  pulse=30ms  gcd=2.37s  enemies=1
-damage   13238372   dps 25957.6   potency 99806 (195.7/s)
-gcds     215 (25.29/min)   ogcds 153   weaves/gcd 0.71
+CielBard sim 1.0.0 | engine 0.5.2
+fight    510.0s  seed=1  ping=0ms  pulse=30ms  gcd=2.38s  enemies=1
+damage   13597833   dps 26662.4   potency 102310 (200.6/s)
+gcds     214 (25.18/min)   ogcds 157   weaves/gcd 0.73
 uptime   gcd 100.0%   clipped 0.00s   rejections 0
-dots     CausticBite 98.6%   Stormbite 99.6%
-songs    WM 5x 39.4s   MB 4x 42.9s   AP 4x 35.2s
-waste    repertoire 25   soulvoice 0   charges 0
-counts   ApexArrow 9  ArmysPaeon 4  Barrage 5  BattleVoice 5  BlastArrow 8  BurstShot 119
-         CausticBite 3  EmpyrealArrow 30  HeartbreakShot 61  IronJaws 10  MagesBallad 4
-         PitchPerfect 24  RadiantEncore 5  RadiantFinale 5  RagingStrikes 5  RefulgentArrow 53
+dots     CausticBite 98.6%   Stormbite 99.9%
+songs    WM 5x 39.8s   MB 4x 42.4s   AP 4x 35.3s
+waste    repertoire 30   soulvoice 0   charges 0   barrage 0
+counts   ApexArrow 9  ArmysPaeon 4  Barrage 5  BattleVoice 5  BlastArrow 9  BurstShot 119
+         CausticBite 3  EmpyrealArrow 33  HeartbreakShot 62  IronJaws 10  MagesBallad 4
+         PitchPerfect 24  RadiantEncore 5  RadiantFinale 5  RagingStrikes 5  RefulgentArrow 51
          ResonantArrow 5  Sidewinder 5  Stormbite 3  WanderersMinuet 5
-rates    crit 26.87%   dh 26.43%   events 681
+rates    crit 27.01%   dh 26.72%   events 685
 ```
 
-Flags: `--seed`, `--ping`, `--pulse`, `--enemies`, `--potion`, `--deterministic`,
-`--downtime A:B` (repeatable), `--kill-time SECONDS`, `--set key=value` (engine config,
-dotted keys allowed), `--stat key=value`, `--json PATH`, `--trace`, `--quiet`, `--strict`.
+Flags: `--seed`, `--ping`, `--pulse`, `--enemies`, `--enemy-spread`, `--potion`,
+`--deterministic`, `--downtime A:B` (repeatable), `--kill-time SECONDS`,
+`--set key=value` (engine config, dotted keys allowed), `--stat key=value`,
+`--json PATH`, `--trace`, `--quiet`, `--strict`.
 Exit codes: 0 ok, 2 bad config, 3 Lua or simulation error, 4 `--strict` with rejections or
 engine warnings.
+
+### Multi-target packs
+
+`--enemies N` puts N striking dummies in the fight. Dummy 1 is the engine's target and
+stands at the origin; the other N-1 are identical clones on a ring of `--enemy-spread`
+yalms (default 2.0) around it.
+
+The engine is never told the number. It counts the pack itself, out of the fake client's
+entity list, exactly as it does live (`CielBard_Rotation.lua`):
+
+| engine call | query | filter it applies | what it drives |
+|---|---|---|---|
+| `E.CountEnemiesNear` | `EntityList("alive,attackable,maxdistance=30")` | `entity.pos` within 5 yalms of the target's | `ctx.enemies`, hence every `AoETargetsFor` threshold (Ladonsbite 2, Shadowbite 2, Shadowbite under Barrage 3, Rain of Death 2) |
+| `E.FindMultiDotTarget` | `EntityList("alive,attackable,incombat,maxdistance=25")` | in combat, targetable, in LOS, above `multiDotMinHPPercent` | the secondary DoT target, when `multiDot` is on |
+
+`FakeClient.set_entities` applies both filter clauses the engine depends on: it drops
+`incombat=False` entities from the `incombat` filter, and it drops entities whose
+`distance2d` exceeds the filter's `maxdistance`. The second one matters because
+`E.FindMultiDotTarget` trusts the filter and never re-checks the distance itself. So the
+spread is a real lever, not
+decoration: `--enemies 3 --enemy-spread 12` leaves every clone outside the 5-yalm
+cluster test, the engine counts one enemy, and the fight is decision-for-decision
+identical to a lone dummy. `tests/test_integration.py`'s `TestMultiTargetScenarios`
+runs 1, 2, 3 and 5 dummies, prints the per-action cast counts side by side, and pins
+both behaviours.
+
+AoE damage is resolved per target from `actions.json`: an action with `aoe` and no
+`falloff` (Ladonsbite 140, Shadowbite 200, Rain of Death 100, Apex Arrow) deals its
+full potency to every dummy, and one with `falloff: 0.5` (Blast Arrow, Resonant Arrow,
+Radiant Encore) deals full potency to the first and half to each of the others.
+
+A dummy is only splashed when the ring radius is within `job.aoe_cluster_radius_yalms`
+(5.0), which is the same 5-yalm test `E.CountEnemiesNear` applies. So the damage model
+and the engine always agree about who is in the pack: at `--enemy-spread 12` the engine
+counts one enemy *and* nothing splashes, and the fight is identical to a lone dummy in
+both decisions and damage.
+
+The simulator has no geometry beyond that single ring, so a cone (Ladonsbite), a
+straight line (Apex Arrow, Blast Arrow) and a circle around the target (Shadowbite,
+Rain of Death, Radiant Encore) all hit the same set of dummies, and there is no
+per-action radius. A clustered pack is the best case for every one of them; do not read
+a multi-target DPS number as an encounter result.
 
 `--kill-time` is the one flag worth explaining. By default the target is a striking dummy
 that never dies, so the engine's TTK estimator never reaches its terminal band. Passing
@@ -103,10 +146,52 @@ and writes a markdown report with the residuals and the per-action count compari
 never edits `sim/data/stats.json`; `--write-scalar` emits `sim/output/stats.override.json`
 beside the report, for you to copy in deliberately. The checked-in report was fitted over
 seeds 1-150 at `potency_to_damage 132.4016` (from the uncalibrated 100.0), residual mean
-0.99 %, max 2.73 %. Regenerating overwrites everything above the `# Analysis` marker, so
+0.99 %, max 2.73 %. **That fit predates the Patch 7.5 potency corrections** (Apex
+140-700, Blast Arrow 700, Resonant Arrow 640), which raise single-target potency by
+about 1.9 % on the 510 s seed-1 reference fight (100408 -> 102310), so it has to be
+re-run before the
+scalar or any DPS number taken from it is quoted again. Regenerating overwrites everything above the `# Analysis` marker, so
 re-append the hand-written analysis afterwards - the report says so at the marker.
 
-Reports and JSON land in `sim/output/` (tracked only by `.gitkeep`).
+### Repository output policy
+
+Everything the four entry points write lands in `sim/output/`. Two kinds of file live
+there and they are versioned differently.
+
+**Versioned (canonical evidence).** A file a reviewer reads, cites, or diffs between
+releases. Each carries its own generation stamp, and a report generated before a
+potency or engine change carries a staleness banner at the top until it is re-run -
+`sweep_apex.md`, `empyreal_report.md`, `pp_ironjaws_report.md` and `FINDINGS.md` all
+predate the Patch 7.5 corrections and say so:
+
+- every `.md` report - `calibration.md`, `sweep_apex.md`, `empyreal_report.md`,
+  `pp_ironjaws_report.md`, `FINDINGS.md`;
+- `calibration.json`, the machine-readable head of the calibration report;
+- summary `.csv` - one row per swept configuration or per diagnostic band, small,
+  diffable and stable across runs (`sweep_*.csv`, `diag_*.csv`, `killband*.csv`,
+  `empyreal_*.csv`).
+
+**Not versioned (run artifacts).** Per-seed and intermediate JSON: it is large, it is
+regenerated by a single command, and it changes wholesale whenever a potency or the
+engine changes, so it makes diffs unreadable without telling anyone anything a report
+does not. These patterns are in the repository `.gitignore`:
+
+```
+sim/output/ab_*.json
+sim/output/sweep_*_confirm*.json
+sim/output/sweep_apex.json
+sim/output/batch.json
+```
+
+Five files matching them were committed before this policy existed
+(`ab_before.json`, `ab_after.json`, `sweep_apex.json`, `sweep_apex_confirm.json`,
+`sweep_apex_confirm2.json`) and are removed in the next commit; the `.gitignore` entries
+keep them from coming back. `stats.override.json` stays tracked deliberately - it is not
+a report but a proposed `stats.json` edit, and it is the one file whose whole purpose is
+to be read and copied by hand.
+
+A per-fight `--json PATH` dump is a working file. Write it outside the repository, or to
+a path already covered above.
 
 ## Tests
 
@@ -135,9 +220,9 @@ No mechanic constant lives in code. Everything is JSON under `sim/data/`:
 
 | file | contents |
 |---|---|
-| `actions.json` | one record per CielBard ability key: id, kind, potency, recast, cooldown, charges, `grants`, `requires`, `multi_hit_eligible` |
+| `actions.json` | one record per CielBard ability key: id, kind, potency, recast, cooldown, charges, `aoe` / `falloff`, `grants`, `requires`, `multi_hit_eligible`, `barrage_potency` |
 | `statuses.json` | buff/debuff ids, durations, DoT tick potencies, the damage/crit/direct-hit modifiers they contribute, and `weaponskill_hits` (Barrage's triple hit) |
-| `job.json` | GCD base and haste rounding, animation locks, Repertoire and Soul Voice rules, coda and Apex curves |
+| `job.json` | GCD base and haste rounding, animation locks, Repertoire and Soul Voice rules, coda and Apex curves, the AoE cluster radius |
 | `stats.json` | crit and direct-hit rates and multipliers, damage variance, and `potency_to_damage` (the calibration scalar) |
 
 `Tables.verify_against_lua()` cross-checks every action and DoT id against
@@ -208,15 +293,23 @@ item must appear, so an assumption added here has to be added there too.
   Stormbite, Caustic Bite, Iron Jaws and Ladonsbite all roll `job.hawks_eye_proc_chance`,
   which is the single knob for the rate; Barrage's grant is written as certain in
   `actions.json` and the knob does not gate it.
-- **Barrage makes the next eligible weaponskill land three times** for 10 s
-  (`statuses.json` `weaponskill_hits`), so the Refulgent Arrow after it is worth 840
-  instead of 280. Eligibility is the `actions.json` flag `multi_hit_eligible` (Burst
-  Shot, Refulgent Arrow, Ladonsbite, Shadowbite and their level-sync precursors);
-  anything else - Resonant Arrow, Apex, the DoTs, Radiant Encore, every off-GCD -
-  neither benefits from the buff nor consumes it, which is what lets the engine's
-  Barrage -> Resonant Arrow -> Refulgent Arrow ordering produce the "Barrage-buffed
-  Refulgent Arrow" of corrections item 15. The corrections record only the Resonant
-  Arrow transform, so the hit count and the eligibility list are both the model.
+- **Barrage does two different things, and which one is per weaponskill.** For 10 s
+  (`statuses.json` `Barrage`) it either makes the next weaponskill land
+  `weaponskill_hits` (3) times or raises its potency, never both:
+  - `actions.json` `multi_hit_eligible` marks the triple hit and, per the job guide,
+    **only Refulgent Arrow** carries it (280 -> 840);
+  - `actions.json` `barrage_potency` marks the flat increase the AoE Hawk's Eye
+    weaponskills get instead - Shadowbite 200 -> 300 per target (Wide Volley's
+    140 -> 220 is the same rule below level 72, but Wide Volley is absent from
+    `CielBardData.Actions` so the simulator has no record for it);
+  - everything else - Heavy Shot, Burst Shot, Ladonsbite, Quick Nock, Resonant Arrow,
+    Apex, the DoTs, Radiant Encore, every off-GCD - neither benefits from the buff nor
+    consumes it, which is what lets the engine's Barrage -> Resonant Arrow -> Refulgent
+    Arrow ordering produce the "Barrage-buffed Refulgent Arrow" of corrections item 15.
+
+  The hit count, the potency override and the eligibility list all come from the
+  tooltips; what remains the simulator's model is that an ineligible weaponskill leaves
+  the buff untouched rather than wasting it.
 - **The Barrage and Radiant Finale transform windows are 30 s** (`ResonantArrowReady`,
   `RadiantEncoreReady`), and Battle Voice, Radiant Finale and Raging Strikes last 20 s.
 - **Bloodletter's 130 potency** is kept in the tables although the action is disabled at
@@ -226,8 +319,14 @@ item must appear, so an assumption added here has to be added there too.
   those observed rates already contain Wanderer's Minuet, Army's Paeon and Battle Voice.
   They are still event rates rather than damage-weighted rates, and the parses' external
   raid buffs are not separable.
-- **Apex Arrow's potency floor** is 100 at 20 gauge, linear to 600 at 100; only the 600
-  endpoint is documented.
+- **Apex Arrow's endpoints are documented**: 140 potency at 20 gauge and 700 at 100
+  (official job guide, Patch 7.5). What remains the simulator's model is that the curve
+  between them is linear.
+- **Apex Arrow, Blast Arrow, Resonant Arrow and Radiant Encore are AoE.** Apex Arrow
+  deals its full potency to every enemy it hits; the other three deal full potency to
+  the first and half to each of the rest (`falloff: 0.5`). Since the simulator has no
+  geometry, all four hit the whole pack, which is their best case - see "Multi-target
+  packs".
 - **Non-DoT status ids are internal to the simulator.** The engine only compares
   `action.statusgainedid` to `buff.id`, so they are self-consistent but unverified.
 - **The 0.6 s oGCD animation lock** is the brief's number; measured MMOMinion gaps in

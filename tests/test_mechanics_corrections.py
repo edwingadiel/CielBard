@@ -341,9 +341,9 @@ class ProcSourceAndWindowTests(unittest.TestCase):
         assert TABLES.status("ResonantArrowReady").duration_s == 30.0
         assert TABLES.status("Barrage").duration_s == 10.0
         resonant = TABLES.action("ResonantArrow")
-        assert resonant.potency == 600
+        assert resonant.potency == 640
         assert resonant.aoe is True
-        assert abs(resonant.falloff - 0.45) < 1e-12, "55 % falloff leaves a 0.45 share"
+        assert abs(resonant.falloff - 0.5) < 1e-12, "50 % less leaves a 0.5 share"
         simulation = _sim()
         simulation._apply_grants(
             TABLES.action("Barrage"), 5 * US, simulation.target_id, BuffSnapshot()
@@ -352,30 +352,37 @@ class ProcSourceAndWindowTests(unittest.TestCase):
         assert (ready.expires_us - 5 * US) / US == 30.0
         assert (simulation.player_statuses["Barrage"].expires_us - 5 * US) / US == 10.0
 
-    def test_08b_resonant_arrow_splashes_at_forty_five_percent(self) -> None:
+    def test_08b_resonant_arrow_splashes_at_fifty_percent(self) -> None:
         simulation = _sim(enemies=2, stat_overrides={"crit_rate": 0.0, "dh_rate": 0.0})
         simulation._apply_status(PLAYER, "ResonantArrowReady", 0)
         simulation.queue.push_kind(
             0, ACTION_EXECUTE, key="ResonantArrow", action_id=36976,
-            target_id=simulation.target_id, potency=600,
+            target_id=simulation.target_id, potency=640,
         )
         for event in simulation.queue.pop_due(0):
             simulation._handle(event)
         hits = [d for d in simulation.damage_events if d.key == "ResonantArrow"]
-        assert [d.potency for d in hits] == [600, 270], hits
+        assert [d.potency for d in hits] == [640, 320], hits
 
     @staticmethod
-    def _execute(simulation: Simulation, key: str, t_us: int = 0) -> list:
-        """Run one ACTION_EXECUTE for `key` and return the damage records it made."""
+    def _execute_at_potency(
+        simulation: Simulation, key: str, potency: int, t_us: int = 0
+    ) -> list:
+        """Run one ACTION_EXECUTE for `key` at `potency` and return its damage records."""
         action = TABLES.action(key)
         before = len(simulation.damage_events)
         simulation.queue.push_kind(
             t_us, ACTION_EXECUTE, key=key, action_id=action.id,
-            target_id=simulation.target_id, potency=action.potency,
+            target_id=simulation.target_id, potency=potency,
         )
         for event in simulation.queue.pop_due(t_us):
             simulation._handle(event)
         return list(simulation.damage_events[before:])
+
+    @classmethod
+    def _execute(cls, simulation: Simulation, key: str, t_us: int = 0) -> list:
+        """Run one ACTION_EXECUTE for `key` at its table potency."""
+        return cls._execute_at_potency(simulation, key, TABLES.action(key).potency, t_us)
 
     def test_08c_barrage_triples_the_next_eligible_weaponskill(self) -> None:
         """Barrage's own effect: Refulgent Arrow lands three times (280 -> 840)."""
@@ -397,18 +404,69 @@ class ProcSourceAndWindowTests(unittest.TestCase):
         simulation._apply_status(PLAYER, "Barrage", 0)
         simulation._apply_status(PLAYER, "ResonantArrowReady", 0)
         resonant = self._execute(simulation, "ResonantArrow")
-        assert [d.potency for d in resonant] == [600], resonant
+        assert [d.potency for d in resonant] == [640], resonant
         assert "Barrage" in simulation.player_statuses
         heartbreak = self._execute(simulation, "HeartbreakShot", 1 * US)
         assert [d.potency for d in heartbreak] == [180], "an oGCD must not spend Barrage"
         assert "Barrage" in simulation.player_statuses
 
-    def test_08e_barrage_multiplies_the_aoe_splash_too(self) -> None:
+    def test_08e_barrage_raises_shadowbite_potency_instead_of_tripling_it(self) -> None:
+        """Shadowbite's tooltip: under Barrage its potency becomes 300, per target.
+
+        It is not a triple hit, so two targets are 300 + 300 = 600, which is less
+        than a Barrage-buffed Refulgent Arrow's 840 - the two-target mis-ordering
+        the v0.5.1 review reported as its second high-priority finding.
+        """
+        shadowbite = TABLES.action("Shadowbite")
+        assert shadowbite.potency == 200
+        assert shadowbite.barrage_potency == 300
+        assert shadowbite.multi_hit_eligible is False, "Barrage must not triple an AoE"
         simulation = _sim(enemies=2, stat_overrides={"crit_rate": 0.0, "dh_rate": 0.0})
         simulation._apply_status(PLAYER, "Barrage", 0)
         simulation._apply_status(PLAYER, "HawksEye", 0)
-        hits = self._execute(simulation, "Shadowbite")
-        assert [d.potency for d in hits] == [200, 200] * 3, hits
+        potency = simulation._potency_for("Shadowbite", shadowbite)
+        assert potency == 300, potency
+        hits = self._execute_at_potency(simulation, "Shadowbite", potency)
+        assert [d.potency for d in hits] == [300, 300], hits
+        assert "Barrage" not in simulation.player_statuses, "Barrage was not consumed"
+        # Two targets: Barrage-Shadowbite 600 < Barrage-Refulgent Arrow 840.
+        refulgent = TABLES.action("RefulgentArrow")
+        assert sum(d.potency for d in hits) < refulgent.potency * 3
+
+    def test_08f_barrage_shadowbite_only_wins_at_three_targets(self) -> None:
+        """The threshold the review asks the engine to use, stated as arithmetic."""
+        shadowbite = TABLES.action("Shadowbite")
+        refulgent = TABLES.action("RefulgentArrow")
+        barrage_refulgent = refulgent.potency * TABLES.status("Barrage").weaponskill_hits
+        assert barrage_refulgent == 840
+        assert shadowbite.potency * 2 > refulgent.potency, "plain proc: 400 > 280 at two"
+        assert shadowbite.barrage_potency * 2 < barrage_refulgent, "600 < 840 at two"
+        assert shadowbite.barrage_potency * 3 > barrage_refulgent, "900 > 840 at three"
+
+    def test_08g_only_refulgent_arrow_is_triple_hit_eligible(self) -> None:
+        """Per the tooltips, no other weaponskill strikes three times under Barrage."""
+        eligible = sorted(
+            key for key, action in TABLES.actions.items() if action.multi_hit_eligible
+        )
+        assert eligible == ["RefulgentArrow"], eligible
+        overrides = {
+            key: action.barrage_potency
+            for key, action in sorted(TABLES.actions.items())
+            if action.barrage_potency
+        }
+        assert overrides == {"Shadowbite": 300}, overrides
+
+    def test_08h_barrage_is_not_spent_by_a_weaponskill_it_does_not_change(self) -> None:
+        """Burst Shot, Heavy Shot, Ladonsbite and Quick Nock are all ineligible now."""
+        simulation = _sim(stat_overrides={"crit_rate": 0.0, "dh_rate": 0.0})
+        simulation._apply_status(PLAYER, "Barrage", 0)
+        for offset, key in enumerate(("BurstShot", "Ladonsbite")):
+            action = TABLES.action(key)
+            assert action.multi_hit_eligible is False, key
+            assert action.barrage_potency == 0, key
+            hits = self._execute(simulation, key, offset * US)
+            assert [d.potency for d in hits] == [action.potency], (key, hits)
+            assert "Barrage" in simulation.player_statuses, key
 
     def test_09_radiant_encore_potency_is_700_800_1100(self) -> None:
         assert list(JOB["radiant_encore_potency"]) == [0, 700, 800, 1100]

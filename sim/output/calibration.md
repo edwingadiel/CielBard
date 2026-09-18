@@ -1,14 +1,14 @@
 # CielBard sim calibration
 
-- generated: 2026-09-17T23:14:07Z
-- sim 1.0.0, engine 0.5.0, seeds 1-150, pulse 30ms, ping 0ms
+- generated: 2026-09-18T06:57:44Z
+- sim 1.0.0, engine 0.5.2, seeds 1-150, pulse 30ms, ping 0ms
 - source: bard-analysis/output/killtime/killtime.csv (40 parses, 496.1-568.6s)
-- fitted potency_to_damage: 132.4016 (from 100.0, x1.324016)
-- least-squares ratio: 132.4012
-- residual: mean absolute error 0.99%, max 2.73%
-- constant-mean null: mean absolute error 1.02%, max 3.00%; model R^2 against it 0.0294
-- spread: actual aDPS mean 34076.9 sd 411.8; fitted sim DPS sd 107.1
-- realized rates: crit 25.47% (report 25.366%), dh 28.84% (report 28.587%)
+- fitted potency_to_damage: 128.5594 (from 100.0, x1.285594)
+- least-squares ratio: 128.5594
+- residual: mean absolute error 0.98%, max 2.85%
+- constant-mean null: mean absolute error 1.02%, max 3.00%; model R^2 against it 0.0377
+- spread: actual aDPS mean 34076.9 sd 411.8; fitted sim DPS sd 77.8
+- realized rates: crit 25.46% (report 25.366%), dh 28.74% (report 28.587%)
 
 The scalar is fitted as sum(aDPS) / sum(sim DPS), so the mean residual is zero by construction and the residual tables below measure parse-to-parse scatter, not model accuracy. A one-parameter multiplicative fit constrains the DPS level only and carries no information about rotation shape: when the model's error columns match the constant-mean null's, the fit has explained nothing beyond the level. Judge the rotation from the per-action rate table instead.
 
@@ -16,11 +16,11 @@ The scalar is fitted as sum(aDPS) / sum(sim DPS), so the mean residual is zero b
 
 | duration_s | parses | mean actual aDPS | sim DPS (fitted) | ratio | err % |
 |---:|---:|---:|---:|---:|---:|
-| 502.0 | 8 | 33928.0 | 34064.7 | 1.0040 | 0.40 |
-| 510.0 | 18 | 34165.5 | 34171.4 | 1.0002 | 0.02 |
-| 520.0 | 5 | 34123.7 | 34023.8 | 0.9971 | -0.29 |
-| 532.0 | 4 | 34107.6 | 34029.6 | 0.9977 | -0.23 |
-| 550.0 | 5 | 33925.1 | 33847.7 | 0.9977 | -0.23 |
+| 502.0 | 8 | 33928.0 | 34069.0 | 1.0042 | 0.42 |
+| 510.0 | 18 | 34165.5 | 34129.9 | 0.9990 | -0.10 |
+| 520.0 | 5 | 34123.7 | 34087.0 | 0.9989 | -0.11 |
+| 532.0 | 4 | 34107.6 | 34082.1 | 0.9993 | -0.07 |
+| 550.0 | 5 | 33925.1 | 33885.0 | 0.9988 | -0.12 |
 
 ## Fit by kill-window band
 
@@ -28,10 +28,10 @@ The scalar is fitted as sum(aDPS) / sum(sim DPS), so the mean residual is zero b
 
 | death after final anchor | parses | mean actual aDPS | sim DPS (fitted) | err % |
 |---|---:|---:|---:|---:|
-| <20 | 14 | 33927.7 | 34110.4 | 0.54 |
-| 20-30 | 13 | 34240.3 | 34160.0 | -0.23 |
-| 31-60 | 10 | 34161.9 | 33990.9 | -0.50 |
-| >60 | 3 | 33782.6 | 33847.7 | 0.19 |
+| <20 | 14 | 33927.7 | 34095.1 | 0.49 |
+| 20-30 | 13 | 34240.3 | 34126.6 | -0.33 |
+| 31-60 | 10 | 34161.9 | 34044.6 | -0.34 |
+| >60 | 3 | 33782.6 | 33885.0 | 0.30 |
 
 ## Per-action counts at 520.0s, as casts per minute
 
@@ -39,86 +39,87 @@ Casts per minute on both sides. The report's absolute counts were taken over 518
 
 | action | sim /min | top-10 /min (report) | delta | delta % |
 |---|---:|---:|---:|---:|
-| ApexArrow | 0.959 | 0.973 | -0.013 | -1.4 |
-| ArmysPaeon | 0.462 | - | - | - |
+| ApexArrow | 1.065 | 0.973 | 0.093 | 9.5 |
+| ArmysPaeon | 0.458 | - | - | - |
 | Barrage | 0.577 | 0.579 | -0.002 | -0.3 |
 | BattleVoice | 0.577 | 0.579 | -0.002 | -0.3 |
-| BlastArrow | 0.956 | 0.949 | 0.007 | 0.7 |
-| BurstShot | 14.456 | - | - | - |
-| CausticBite | 0.268 | - | - | - |
-| EmpyrealArrow | 3.462 | 3.937 | -0.475 | -12.1 |
-| HeartbreakShot | 7.292 | 6.553 | 0.738 | 11.3 |
-| IronJaws | 1.232 | 1.308 | -0.076 | -5.8 |
-| MagesBallad | 0.462 | - | - | - |
-| PitchPerfect | 2.678 | 2.814 | -0.136 | -4.8 |
+| BlastArrow | 1.061 | 0.949 | 0.111 | 11.7 |
+| BurstShot | 14.370 | - | - | - |
+| CausticBite | 0.157 | - | - | - |
+| EmpyrealArrow | 3.923 | 3.937 | -0.014 | -0.3 |
+| HeartbreakShot | 7.427 | 6.553 | 0.873 | 13.3 |
+| IronJaws | 1.343 | 1.308 | 0.035 | 2.7 |
+| MagesBallad | 0.458 | - | - | - |
+| PitchPerfect | 2.655 | 2.814 | -0.158 | -5.6 |
 | RadiantEncore | 0.577 | 0.579 | -0.002 | -0.3 |
 | RadiantFinale | 0.577 | 0.579 | -0.002 | -0.3 |
 | RagingStrikes | 0.577 | 0.579 | -0.002 | -0.3 |
 | RainOfDeath | 0.000 | 0.831 | -0.831 | -100.0 |
-| RefulgentArrow | 5.962 | - | - | - |
+| RefulgentArrow | 5.932 | - | - | - |
 | ResonantArrow | 0.577 | - | - | - |
 | Sidewinder | 0.577 | - | - | - |
-| Stormbite | 0.268 | - | - | - |
+| Stormbite | 0.157 | - | - | - |
 | WanderersMinuet | 0.577 | - | - | - |
-| ChargeSpenders (combined) | 7.292 | 7.384 | -0.092 | -1.3 |
-| All casts | 43.071 | 45.270 | -2.199 | -4.9 |
+| ChargeSpenders (combined) | 7.427 | 7.384 | 0.043 | 0.6 |
+| All casts | 43.623 | 45.270 | -1.647 | -3.6 |
 
-GCDs per minute: sim 25.255, report 25.311.
+GCDs per minute: sim 25.239, report 25.311.
 
 ## Per-parse residuals
 
 | rank | duration_s | actual aDPS | sim DPS | err % |
 |---:|---:|---:|---:|---:|
-| 1 | 509.9 | 35132.0 | 34171.4 | -2.73 |
-| 2 | 512.7 | 34915.7 | 34171.4 | -2.13 |
-| 3 | 532.1 | 34858.9 | 34029.6 | -2.38 |
-| 4 | 507.4 | 34748.5 | 34171.4 | -1.66 |
-| 5 | 502.6 | 34644.6 | 34064.7 | -1.67 |
-| 6 | 507.7 | 34432.7 | 34171.4 | -0.76 |
-| 7 | 550.6 | 34426.5 | 33847.7 | -1.68 |
-| 8 | 520.4 | 34416.8 | 34023.8 | -1.14 |
-| 9 | 525.9 | 34394.7 | 34023.8 | -1.08 |
-| 10 | 514.4 | 34363.5 | 34171.4 | -0.56 |
-| 11 | 522.0 | 34359.1 | 34023.8 | -0.98 |
-| 12 | 506.4 | 34348.7 | 34171.4 | -0.52 |
-| 13 | 527.5 | 34294.2 | 34029.6 | -0.77 |
-| 14 | 510.9 | 34263.9 | 34171.4 | -0.27 |
-| 15 | 501.0 | 34243.1 | 34064.7 | -0.52 |
-| 16 | 510.9 | 34220.4 | 34171.4 | -0.14 |
-| 17 | 508.7 | 34156.3 | 34171.4 | 0.04 |
-| 18 | 501.6 | 34123.1 | 34064.7 | -0.17 |
-| 19 | 510.0 | 34036.3 | 34171.4 | 0.40 |
-| 20 | 506.2 | 34020.9 | 34171.4 | 0.44 |
-| 21 | 557.6 | 33944.9 | 33847.7 | -0.29 |
-| 22 | 506.2 | 33912.7 | 34171.4 | 0.76 |
-| 23 | 506.1 | 33896.5 | 34171.4 | 0.81 |
-| 24 | 511.8 | 33868.2 | 34171.4 | 0.90 |
-| 25 | 543.7 | 33851.4 | 33847.7 | -0.01 |
-| 26 | 505.1 | 33765.1 | 34064.7 | 0.89 |
-| 27 | 568.6 | 33755.4 | 33847.7 | 0.27 |
-| 28 | 508.8 | 33744.4 | 34171.4 | 1.27 |
-| 29 | 521.6 | 33739.9 | 34023.8 | 0.84 |
-| 30 | 517.0 | 33707.7 | 34023.8 | 0.94 |
-| 31 | 496.1 | 33706.4 | 34064.7 | 1.06 |
-| 32 | 503.3 | 33670.7 | 34064.7 | 1.17 |
-| 33 | 511.2 | 33660.1 | 34171.4 | 1.52 |
-| 34 | 503.5 | 33659.4 | 34064.7 | 1.20 |
-| 35 | 559.5 | 33647.5 | 33847.7 | 0.60 |
-| 36 | 528.9 | 33641.5 | 34029.6 | 1.15 |
-| 37 | 509.0 | 33640.3 | 34171.4 | 1.58 |
-| 38 | 527.5 | 33635.9 | 34029.6 | 1.17 |
-| 39 | 509.7 | 33618.0 | 34171.4 | 1.65 |
-| 40 | 503.5 | 33612.0 | 34064.7 | 1.35 |
+| 1 | 509.9 | 35132.0 | 34129.9 | -2.85 |
+| 2 | 512.7 | 34915.7 | 34129.9 | -2.25 |
+| 3 | 532.1 | 34858.9 | 34082.1 | -2.23 |
+| 4 | 507.4 | 34748.5 | 34129.9 | -1.78 |
+| 5 | 502.6 | 34644.6 | 34069.0 | -1.66 |
+| 6 | 507.7 | 34432.7 | 34129.9 | -0.88 |
+| 7 | 550.6 | 34426.5 | 33885.0 | -1.57 |
+| 8 | 520.4 | 34416.8 | 34087.0 | -0.96 |
+| 9 | 525.9 | 34394.7 | 34087.0 | -0.89 |
+| 10 | 514.4 | 34363.5 | 34129.9 | -0.68 |
+| 11 | 522.0 | 34359.1 | 34087.0 | -0.79 |
+| 12 | 506.4 | 34348.7 | 34129.9 | -0.64 |
+| 13 | 527.5 | 34294.2 | 34082.1 | -0.62 |
+| 14 | 510.9 | 34263.9 | 34129.9 | -0.39 |
+| 15 | 501.0 | 34243.1 | 34069.0 | -0.51 |
+| 16 | 510.9 | 34220.4 | 34129.9 | -0.26 |
+| 17 | 508.7 | 34156.3 | 34129.9 | -0.08 |
+| 18 | 501.6 | 34123.1 | 34069.0 | -0.16 |
+| 19 | 510.0 | 34036.3 | 34129.9 | 0.27 |
+| 20 | 506.2 | 34020.9 | 34129.9 | 0.32 |
+| 21 | 557.6 | 33944.9 | 33885.0 | -0.18 |
+| 22 | 506.2 | 33912.7 | 34129.9 | 0.64 |
+| 23 | 506.1 | 33896.5 | 34129.9 | 0.69 |
+| 24 | 511.8 | 33868.2 | 34129.9 | 0.77 |
+| 25 | 543.7 | 33851.4 | 33885.0 | 0.10 |
+| 26 | 505.1 | 33765.1 | 34069.0 | 0.90 |
+| 27 | 568.6 | 33755.4 | 33885.0 | 0.38 |
+| 28 | 508.8 | 33744.4 | 34129.9 | 1.14 |
+| 29 | 521.6 | 33739.9 | 34087.0 | 1.03 |
+| 30 | 517.0 | 33707.7 | 34087.0 | 1.13 |
+| 31 | 496.1 | 33706.4 | 34069.0 | 1.08 |
+| 32 | 503.3 | 33670.7 | 34069.0 | 1.18 |
+| 33 | 511.2 | 33660.1 | 34129.9 | 1.40 |
+| 34 | 503.5 | 33659.4 | 34069.0 | 1.22 |
+| 35 | 559.5 | 33647.5 | 33885.0 | 0.71 |
+| 36 | 528.9 | 33641.5 | 34082.1 | 1.31 |
+| 37 | 509.0 | 33640.3 | 34129.9 | 1.46 |
+| 38 | 527.5 | 33635.9 | 34082.1 | 1.33 |
+| 39 | 509.7 | 33618.0 | 34129.9 | 1.52 |
+| 40 | 503.5 | 33612.0 | 34069.0 | 1.36 |
 
 ## Unverified assumptions
 
 - Army's Muse / Army's Ethos haste table (1 / 2 / 4 / 12 % by stacks, 30 s Ethos carry-over): not in the brief or the repository - simulator assumption.
-- Apex Arrow potency floor of 100 at 20 gauge, linear to 600 at 100: the brief fixes only the 600 endpoint - simulator assumption.
+- Apex Arrow 140 potency at 20 gauge to 700 at 100: both endpoints are the official job guide's Patch 7.5 values, but the shape of the curve between them is not published - the linear interpolation is the simulator's assumption.
 - Non-DoT status ids (Hawk's Eye, the buffs, the ready markers, the song statuses) are internal to the simulator; the engine only compares action.statusgainedid to buff.id, so they are self-consistent but unverified against the live client.
 - Radiant Encore potency 700 / 800 / 1100 by coda count: taken from the official job guide; Icy Veins' 7.0 changelog listed 500 / 600 / 900 - flagged, not resolved.
 - Barrage's Hawk's Eye is guaranteed while every other source rolls job.hawks_eye_proc_chance (35 %): Burst Shot, Stormbite, Caustic Bite, Iron Jaws and Ladonsbite all move together with that one knob, and Barrage's grant is written as certain in actions.json so the knob does not gate it (MECHANICS_CORRECTIONS.md item 7) - the scope of the knob is the assumption.
-- Barrage makes the next eligible weaponskill land three times (statuses.json weaponskill_hits = 3, a 10 s window; Refulgent Arrow 280 -> 840). Eligibility is the actions.json flag multi_hit_eligible - Burst Shot, Refulgent Arrow, Ladonsbite, Shadowbite and their level-sync precursors - and anything else (Resonant Arrow, Apex, the DoTs, Radiant Encore, every off-GCD) neither benefits nor consumes the buff. MECHANICS_CORRECTIONS.md item 8 records only the 30 s Resonant Arrow transform, so both the hit count and the eligibility list are the simulator's model.
+- Barrage (a 10 s window) does one of two things, per weaponskill, and never both: Refulgent Arrow lands three times (statuses.json weaponskill_hits = 3, so 280 -> 840) and it is the only action the job guide gives the triple hit to, while the AoE Hawk's Eye weaponskills take a flat potency increase instead (actions.json barrage_potency: Shadowbite 200 -> 300 per target; Wide Volley's 140 -> 220 is the same rule below level 72 but has no simulator record, since Wide Volley is absent from CielBardData.Actions). Heavy Shot, Burst Shot, Ladonsbite, Quick Nock, Resonant Arrow, Apex, the DoTs, Radiant Encore and every off-GCD neither benefit from the buff nor consume it. The potencies come from the tooltips; what stays the simulator's model is that an ineligible weaponskill leaves the buff untouched instead of wasting it (MECHANICS_CORRECTIONS.md item 8).
 - The Barrage and Radiant Finale transform windows are 30 s (ResonantArrowReady, RadiantEncoreReady) and Battle Voice, Radiant Finale and Raging Strikes last 20 s (MECHANICS_CORRECTIONS.md items 8, 9 and 12) - taken from the guides, not measured on the live client.
+- Apex Arrow, Blast Arrow, Resonant Arrow and Radiant Encore are modelled as AoE: Apex Arrow at full potency to every target, the other three at full potency to the first and 50 % to each of the rest. The simulator has no geometry, so a straight line (Apex, Blast Arrow), a cone (Ladonsbite) and a circle around the target (Shadowbite, Rain of Death, Radiant Encore) all hit the same clustered pack - the best case for all of them. Multi-target DPS is an upper bound, not an encounter result.
 - Bloodletter 130 potency: kept in the tables but the action is disabled at level 100, where it is trait-upgraded to Heartbreak Shot (180) - brief/game discrepancy.
 - oGCD animation lock of 0.6 s: the brief says 0.6, while measured MMOMinion gaps in HANDOFF.md were 640-719 ms including client overhead - flagged, configurable.
 - Linear dummy HP model (hp% = 100 * (1 - t / seconds)) used to drive the engine's TTK estimator and therefore its terminal and ideal-finish bands - modelling choice.
@@ -134,30 +135,55 @@ GCDs per minute: sim 25.255, report 25.311.
 - Kill-window bands are derived from `death_after_final_anchor_s`, which is a proxy for how much of the final burst landed before the boss died.
 - The kill-window band table cannot discriminate between bands: `calibrate` sets no `kill_time_s`, so the simulator does not model the kill window at all and the sim DPS in that table varies only through the duration matching. Read it as a grouping of the parses, not as a test of the model.
 - A one-parameter multiplicative fit constrains the DPS *level* only. It carries no information about rotation shape, and because the scalar is fitted as sum(aDPS) / sum(sim DPS) the mean residual is zero by construction. The honest check is the R^2 against the constant-mean null printed in the header, plus the per-action rate table.
+- The fit is against single-target parses only. `enemies > 1` puts identical dummies on one ring inside every AoE radius, so nothing in the calibration constrains the multi-target numbers.
 - Bard auto attacks are ~7-10 % of real aDPS. `stats.auto_attack_dps` ships at 0.0, so they are not modelled and the single scalar absorbs them; that makes them scale with potency output rather than with time, which biases any experiment that moves GCD count or uptime without moving potency (the ping sweep, downtime windows, GCD_ONLY). Set `auto_attack_dps` to model them explicitly.
-
----
 
 # Analysis (hand-written)
 
 Everything above this line is generated by `python -m sim.calibrate` and is overwritten on
 every run; the same content is in `sim/output/calibration.json`. Everything below is the
 analysis the generated report cannot produce on its own, and it must be re-appended after a
-regeneration. Each claim below names the command that produced it, and the raw CSVs sit
-next to this file in `sim/output/`.
+regeneration.
 
-**This pass (2026-09-17, post-corrections) re-ran every number below.** The previous
-analysis carried a stale-number notice because it had been measured on the pre-Barrage
-`potency_to_damage = 136.7979` scale; that notice is gone because nothing stale is left.
-All numbers below use `pulse 30 ms`, `ping 0 ms`, one enemy, no downtime, no potion and
-`--stat potency_to_damage=132.401588` so that DPS is on the fitted scale. Sample sizes are
-stated per experiment and are never below 100 seeds.
+**The generated head above is the 2026-09-18 re-run: engine 0.5.2, corrected Patch 7.5
+potencies, `potency_to_damage = 128.5594`, seeds 1-150 per duration anchor.** Everything
+below this preamble is the **2026-09-17 analysis against engine 0.5.0 on the old potency
+curve** (`potency_to_damage = 132.401588`, Apex 100-600, Blast 600, Resonant 600). It is
+kept because its reasoning, attributions and diagnostic method are what produced the 0.5.1
+engine changes and none of that reasoning has been invalidated - but **its DPS numbers,
+scalars and p-values were measured on data that has since been corrected.** Read it for the
+*why*; read `sim/output/FINDINGS.md` section 4 for the *what*.
 
-Three investigations were run alongside this pass and their full reports sit beside this
-file. Where a section below summarises one, the report is the authority:
-`sim/output/sweep_apex.md`, `sim/output/empyreal_report.md`,
-`sim/output/pp_ironjaws_report.md`. The decision-oriented digest of all four documents is
-`sim/output/FINDINGS.md`.
+Specifically, on the current tree:
+
+- **Section A's scalar is superseded.** 132.4016 -> **128.5594**; the corrected potencies
+  added +3.0 %. Residual 0.98 % mean / 2.85 % max. The engine now sits **1.37 %** below the
+  top-10 mean aDPS of 34,633.4 at its shipped defaults.
+- **Section C's count gaps are superseded and mostly closed.** Empyreal Arrow -12.1 % ->
+  **-0.3 %**, Iron Jaws -5.8 % -> **+2.7 %**, charge spenders -1.3 % -> **+0.6 %**. Apex
+  Arrow moved the other way, -1.4 % -> **+9.5 %**, because `apexOffcycleGauge` is now 80.
+  See FINDINGS 4.1.
+- **Section E is superseded and its conclusion survives with a different mechanism.**
+  `chargePoolSeconds = 25` is still right, but 35 no longer collapses: re-swept at 300
+  paired seeds on 0.5.2 it loses 0.98 Heartbreak casts and -27 DPS (p = 0.37) where it lost
+  5.6 casts and -281 DPS on 0.5.0. That is the `nextBurstSeconds()` skew fix showing up
+  exactly where section E predicted it would. `sweep_chargepool.csv` now holds the 0.5.2
+  data. See FINDINGS 4.3.
+- **Section F's ranked list is superseded by FINDINGS 3.4 and 4.5.** Items 1, 2 and 3
+  shipped in 0.5.1; the Apex verdict was re-confirmed on the corrected curve (80 beats 90
+  by +0.237 %, p = 0.000079); the only open recommendation is
+  `apexHoldForBurstSeconds` 35 -> 0 at p = 0.0524.
+- **Sections B and D have not been re-measured** on the corrected curve.
+
+Each claim below names the command that produced it, and the raw CSVs sit next to this file
+in `sim/output/`. All of them used `pulse 30 ms`, `ping 0 ms`, one enemy, no downtime, no
+potion and `--stat potency_to_damage=132.401588`. Sample sizes are stated per experiment and
+are never below 100 seeds.
+
+The reports beside this file are the authority where a section summarises one:
+`sim/output/sweep_apex.md` (re-run for 0.5.2), `sim/output/empyreal_report.md` and
+`sim/output/pp_ironjaws_report.md` (still 0.5.0). The decision-oriented digest of all four
+documents is `sim/output/FINDINGS.md`.
 
 ## A. What the corrections changed, and who the engine is
 
@@ -385,6 +411,11 @@ conversion. Use it to compare simulator configurations against each other, which
 is good for; do not read it as a gear or stat statement.
 
 ## E. Heartbreak `chargePoolSeconds`: the shipped default is right, 35 s is not
+
+> **Re-swept on 0.5.2.** 7a was fixed in 0.5.1 and this table was re-run at 300 paired
+> seeds: 25 still wins, but 35 no longer collapses (-0.98 Heartbreak casts, -27 DPS,
+> p = 0.37, against -5.6 casts and -281 DPS here). `sweep_chargepool.csv` now holds the
+> 0.5.2 data; `sim/output/FINDINGS.md` 4.3 is the current report.
 
 ```
 python -m sim.sweep --seconds 510 --kill-time 510 --seeds 1-100 --workers 11 \

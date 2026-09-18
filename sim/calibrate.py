@@ -89,8 +89,9 @@ REPORT_ADPS_TOP10 = 34633.0
 UNVERIFIED = (
     "Army's Muse / Army's Ethos haste table (1 / 2 / 4 / 12 % by stacks, 30 s Ethos "
     "carry-over): not in the brief or the repository - simulator assumption.",
-    "Apex Arrow potency floor of 100 at 20 gauge, linear to 600 at 100: the brief fixes "
-    "only the 600 endpoint - simulator assumption.",
+    "Apex Arrow 140 potency at 20 gauge to 700 at 100: both endpoints are the official "
+    "job guide's Patch 7.5 values, but the shape of the curve between them is not "
+    "published - the linear interpolation is the simulator's assumption.",
     "Non-DoT status ids (Hawk's Eye, the buffs, the ready markers, the song statuses) are "
     "internal to the simulator; the engine only compares action.statusgainedid to buff.id, "
     "so they are self-consistent but unverified against the live client.",
@@ -101,17 +102,28 @@ UNVERIFIED = (
     "Ladonsbite all move together with that one knob, and Barrage's grant is written as "
     "certain in actions.json so the knob does not gate it (MECHANICS_CORRECTIONS.md "
     "item 7) - the scope of the knob is the assumption.",
-    "Barrage makes the next eligible weaponskill land three times (statuses.json "
-    "weaponskill_hits = 3, a 10 s window; Refulgent Arrow 280 -> 840). Eligibility is the "
-    "actions.json flag multi_hit_eligible - Burst Shot, Refulgent Arrow, Ladonsbite, "
-    "Shadowbite and their level-sync precursors - and anything else (Resonant Arrow, Apex, "
-    "the DoTs, Radiant Encore, every off-GCD) neither benefits nor consumes the buff. "
-    "MECHANICS_CORRECTIONS.md item 8 records only the 30 s Resonant Arrow transform, so "
-    "both the hit count and the eligibility list are the simulator's model.",
+    "Barrage (a 10 s window) does one of two things, per weaponskill, and never both: "
+    "Refulgent Arrow lands three times (statuses.json weaponskill_hits = 3, so "
+    "280 -> 840) and it is the only action the job guide gives the triple hit to, while "
+    "the AoE Hawk's Eye weaponskills take a flat potency increase instead (actions.json "
+    "barrage_potency: Shadowbite 200 -> 300 per target; Wide Volley's 140 -> 220 is the "
+    "same rule below level 72 but has no simulator record, since Wide Volley is absent "
+    "from CielBardData.Actions). Heavy Shot, Burst Shot, Ladonsbite, Quick Nock, Resonant "
+    "Arrow, Apex, the DoTs, Radiant Encore and every off-GCD neither benefit from the "
+    "buff nor consume it. The potencies come from the tooltips; what stays the "
+    "simulator's model is that an ineligible weaponskill leaves the buff untouched "
+    "instead of wasting it (MECHANICS_CORRECTIONS.md item 8).",
     "The Barrage and Radiant Finale transform windows are 30 s (ResonantArrowReady, "
     "RadiantEncoreReady) and Battle Voice, Radiant Finale and Raging Strikes last 20 s "
     "(MECHANICS_CORRECTIONS.md items 8, 9 and 12) - taken from the guides, not measured "
     "on the live client.",
+    "Apex Arrow, Blast Arrow, Resonant Arrow and Radiant Encore are modelled as AoE: "
+    "Apex Arrow at full potency to every target, the other three at full potency to the "
+    "first and 50 % to each of the rest. The simulator has no geometry, so a straight "
+    "line (Apex, Blast Arrow), a cone (Ladonsbite) and a circle around the target "
+    "(Shadowbite, Rain of Death, Radiant Encore) all hit the same clustered pack - the "
+    "best case for all of them. Multi-target DPS is an upper bound, not an encounter "
+    "result.",
     "Bloodletter 130 potency: kept in the tables but the action is disabled at level 100, "
     "where it is trait-upgraded to Heartbreak Shot (180) - brief/game discrepancy.",
     "oGCD animation lock of 0.6 s: the brief says 0.6, while measured MMOMinion gaps in "
@@ -152,6 +164,9 @@ LIMITATIONS = (
     "sum(aDPS) / sum(sim DPS) the mean residual is zero by construction. The honest "
     "check is the R^2 against the constant-mean null printed in the header, plus the "
     "per-action rate table.",
+    "The fit is against single-target parses only. `enemies > 1` puts identical dummies "
+    "on one ring inside every AoE radius, so nothing in the calibration constrains the "
+    "multi-target numbers.",
     "Bard auto attacks are ~7-10 % of real aDPS. `stats.auto_attack_dps` ships at 0.0, "
     "so they are not modelled and the single scalar absorbs them; that makes them scale "
     "with potency output rather than with time, which biases any experiment that moves "

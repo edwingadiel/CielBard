@@ -5,9 +5,8 @@
     "kind": "gcd",
     "potency": 160,
     "recast_s": 2.5,
-    "multi_hit_eligible": true,
     "grants": [{"status": "HawksEye", "chance": 0.35}],
-    "notes": "Level-sync fallback only; trait-upgraded to Burst Shot at 76. Never expected at level 100."
+    "notes": "Level-sync fallback only; trait-upgraded to Burst Shot at 76. Never expected at level 100. Not Barrage-eligible: only Refulgent Arrow carries the triple-hit tooltip."
   },
   "BurstShot": {
     "id": 16495,
@@ -15,9 +14,8 @@
     "kind": "gcd",
     "potency": 220,
     "recast_s": 2.5,
-    "multi_hit_eligible": true,
     "grants": [{"status": "HawksEye", "chance": 0.35}],
-    "notes": "Filler GCD; 35 percent Hawk's Eye. Barrage-eligible."
+    "notes": "Filler GCD; 35 percent Hawk's Eye. Not Barrage-eligible: the triple hit appears only on Refulgent Arrow's tooltip."
   },
   "RefulgentArrow": {
     "id": 7409,
@@ -27,7 +25,7 @@
     "recast_s": 2.5,
     "multi_hit_eligible": true,
     "requires": ["HawksEye"],
-    "notes": "Consumes Hawk's Eye. Barrage-eligible: under Barrage it lands three times (840)."
+    "notes": "Consumes Hawk's Eye. The only Barrage triple-hit weaponskill: under Barrage it lands three times (280 x 3 = 840)."
   },
   "Stormbite": {
     "id": 7407,
@@ -70,28 +68,31 @@
     "kind": "gcd",
     "potency": 0,
     "recast_s": 2.5,
+    "aoe": true,
     "grants": [{"status": "BlastArrowReady"}],
-    "notes": "Potency scales with Soul Voice; see job.apex and tables.apex_potency. The BlastArrowReady grant applies only when the gauge spent was at least job.apex.blast_gauge_threshold; the core gates it."
+    "notes": "Potency scales with Soul Voice (140 at 20 gauge to 700 at 100); see job.apex and tables.apex_potency. Straight-line AoE at full potency to every enemy hit, so no falloff. The BlastArrowReady grant applies only when the gauge spent was at least job.apex.blast_gauge_threshold; the core gates it."
   },
   "BlastArrow": {
     "id": 25784,
     "name": "Blast Arrow",
     "kind": "gcd",
-    "potency": 600,
+    "potency": 700,
     "recast_s": 2.5,
+    "aoe": true,
+    "falloff": 0.5,
     "requires": ["BlastArrowReady"],
-    "notes": "Follow-up to a high-gauge Apex Arrow."
+    "notes": "Follow-up to a high-gauge Apex Arrow. 700 to the first enemy, 50 percent less to every other one, so a secondary target takes a 0.5 damage share."
   },
   "ResonantArrow": {
     "id": 36976,
     "name": "Resonant Arrow",
     "kind": "gcd",
-    "potency": 600,
+    "potency": 640,
     "recast_s": 2.5,
     "aoe": true,
-    "falloff": 0.45,
+    "falloff": 0.5,
     "requires": ["ResonantArrowReady"],
-    "notes": "Barrage follow-up. 55 percent falloff, so a secondary target takes a 0.45 damage share."
+    "notes": "Barrage follow-up. 640 to the first enemy, 50 percent less to every other one, so a secondary target takes a 0.5 damage share."
   },
   "RadiantEncore": {
     "id": 36977,
@@ -99,8 +100,10 @@
     "kind": "gcd",
     "potency": 0,
     "recast_s": 2.5,
+    "aoe": true,
+    "falloff": 0.5,
     "requires": ["RadiantEncoreReady"],
-    "notes": "Potency 700/800/1100 by the coda count consumed by the Finale that granted it; see job.radiant_encore_potency."
+    "notes": "Potency 700/800/1100 by the coda count consumed by the Finale that granted it; see job.radiant_encore_potency. AoE around the target: 50 percent less to every enemy after the first."
   },
   "Ladonsbite": {
     "id": 25783,
@@ -109,9 +112,8 @@
     "potency": 140,
     "recast_s": 2.5,
     "aoe": true,
-    "multi_hit_eligible": true,
     "grants": [{"status": "HawksEye", "chance": 0.35}],
-    "notes": "AoE cone, 140 potency per target. Barrage-eligible."
+    "notes": "AoE cone, 140 potency per target, no falloff. Not Barrage-eligible and it does not consume the buff."
   },
   "Shadowbite": {
     "id": 16494,
@@ -120,9 +122,9 @@
     "potency": 200,
     "recast_s": 2.5,
     "aoe": true,
-    "multi_hit_eligible": true,
+    "barrage_potency": 300,
     "requires": ["HawksEye"],
-    "notes": "AoE, 200 potency per target; consumes Hawk's Eye. Barrage-eligible."
+    "notes": "AoE, 200 potency per target, no falloff; consumes Hawk's Eye. Under Barrage the tooltip raises the potency to 300 per target; it does NOT hit three times. Casting it under Barrage still consumes the buff. Its level-sync precursor Wide Volley is 140 / 220 and is absent from CielBardData.Actions, so it has no record here."
   },
   "QuickNock": {
     "id": 106,
@@ -131,8 +133,7 @@
     "potency": 110,
     "recast_s": 2.5,
     "aoe": true,
-    "multi_hit_eligible": true,
-    "notes": "Pre-76 fallback; trait-upgraded to Ladonsbite. Never expected at level 100."
+    "notes": "Pre-76 fallback; trait-upgraded to Ladonsbite. Never expected at level 100. Not Barrage-eligible, like Ladonsbite."
   },
   "EmpyrealArrow": {
     "id": 3558,
@@ -206,7 +207,7 @@
       {"status": "HawksEye"}
     ],
     "status_gained_id": 128,
-    "notes": "Grants a guaranteed Hawk's Eye, the 10 s Barrage buff (the next weaponskill hits three times; see statuses.json weaponskill_hits) and the 30 s Resonant Arrow window."
+    "notes": "Grants a guaranteed Hawk's Eye, the 10 s Barrage buff and the 30 s Resonant Arrow window. The buff makes the next Refulgent Arrow hit three times (statuses.json weaponskill_hits) or, on Shadowbite / Wide Volley, raises the potency instead (actions.json barrage_potency)."
   },
   "RagingStrikes": {
     "id": 101,

@@ -352,6 +352,11 @@ Record schema (unknown keys are an error; missing optional keys take the default
     "self_target": false,
     "aoe": false,
     "falloff": 0.0,               // secondary-target damage share, 0 = single target
+    "multi_hit_eligible": false,  // Barrage makes this land statuses.Barrage.weaponskill_hits
+                                  //   times; gcd only; Refulgent Arrow alone carries it
+    "barrage_potency": 0,         // Barrage raises this action's potency to this value
+                                  //   instead of multiplying its hits; gcd only; mutually
+                                  //   exclusive with multi_hit_eligible; 0 = no override
     "grants": [                   // status applications on execution
       {"status": "HawksEye", "chance": 0.35}
     ],
@@ -368,25 +373,25 @@ potency; DoT tick potency lives in `statuses.json`.
 | key | id | kind | potency | cooldown_s | charges | notes |
 |---|---:|---|---:|---:|---:|---|
 | `HeavyShot` | 97 | gcd | 160 | 0 | 1 | level-sync fallback only; never expected at 100 |
-| `BurstShot` | 16495 | gcd | 220 | 0 | 1 | 35 % `HawksEye`; `multi_hit_eligible` |
+| `BurstShot` | 16495 | gcd | 220 | 0 | 1 | 35 % `HawksEye`; not a Barrage weaponskill |
 | `RefulgentArrow` | 7409 | gcd | 280 | 0 | 1 | requires `HawksEye`; `multi_hit_eligible` (840 under Barrage) |
 | `Stormbite` | 7407 | gcd | 100 | 0 | 1 | applies `Stormbite` |
 | `CausticBite` | 7406 | gcd | 150 | 0 | 1 | applies `CausticBite` |
 | `IronJaws` | 3560 | gcd | 100 | 0 | 1 | refreshes + resnapshots both DoTs |
-| `ApexArrow` | 16496 | gcd | scaled | 0 | 1 | see §4.4 |
-| `BlastArrow` | 25784 | gcd | 600 | 0 | 1 | requires `BlastArrowReady` |
-| `ResonantArrow` | 36976 | gcd | 600 | 0 | 1 | requires `ResonantArrowReady` |
-| `RadiantEncore` | 36977 | gcd | scaled | 0 | 1 | requires `RadiantEncoreReady`; 700/800/1100 by codas consumed by the Finale that granted it |
-| `Ladonsbite` | 25783 | gcd | 140 | 0 | 1 | aoe cone, 35 % `HawksEye`; `multi_hit_eligible` |
-| `Shadowbite` | 16494 | gcd | 200 | 0 | 1 | aoe, requires `HawksEye`; `multi_hit_eligible` |
-| `QuickNock` | 106 | gcd | 110 | 0 | 1 | pre-76 fallback |
+| `ApexArrow` | 16496 | gcd | scaled | 0 | 1 | aoe, no falloff; see §4.4 |
+| `BlastArrow` | 25784 | gcd | 700 | 0 | 1 | aoe, `falloff` 0.5; requires `BlastArrowReady` |
+| `ResonantArrow` | 36976 | gcd | 640 | 0 | 1 | aoe, `falloff` 0.5; requires `ResonantArrowReady` |
+| `RadiantEncore` | 36977 | gcd | scaled | 0 | 1 | aoe, `falloff` 0.5; requires `RadiantEncoreReady`; 700/800/1100 by codas consumed by the Finale that granted it |
+| `Ladonsbite` | 25783 | gcd | 140 | 0 | 1 | aoe cone, no falloff, 35 % `HawksEye`; not a Barrage weaponskill |
+| `Shadowbite` | 16494 | gcd | 200 | 0 | 1 | aoe, no falloff, requires `HawksEye`; `barrage_potency` 300 |
+| `QuickNock` | 106 | gcd | 110 | 0 | 1 | pre-76 fallback; not a Barrage weaponskill |
 | `EmpyrealArrow` | 3558 | ogcd | 260 | 15 | 1 | guaranteed Repertoire |
 | `Sidewinder` | 3562 | ogcd | 400 | 60 | 1 | |
 | `HeartbreakShot` | 36975 | ogcd | 180 | 15 | 3 | `cdmax = 45` |
 | `Bloodletter` | 110 | ogcd | 130 | 15 | 3 | shares the charge pool; see §4.7 note 2 |
 | `RainOfDeath` | 117 | ogcd | 100 | 15 | 3 | aoe, shares the charge pool |
 | `PitchPerfect` | 7404 | ogcd | scaled | 1 | 1 | 100/220/360 by stacks; WM only |
-| `Barrage` | 107 | buff | 0 | 120 | 1 | grants `Barrage` (10 s triple hit) + `ResonantArrowReady` + `HawksEye` |
+| `Barrage` | 107 | buff | 0 | 120 | 1 | grants `Barrage` (10 s, see §4.2 note) + `ResonantArrowReady` + `HawksEye` |
 | `RagingStrikes` | 101 | buff | 0 | 120 | 1 | grants `RagingStrikes` 20 s |
 | `BattleVoice` | 118 | buff | 0 | 120 | 1 | grants `BattleVoice` 20 s |
 | `RadiantFinale` | 25785 | buff | 0 | 110 | 1 | grants `RadiantFinale` 20 s + `RadiantEncoreReady` 30 s |
@@ -436,7 +441,7 @@ Required statuses:
 | `BlastArrowReady` | 2692 | 10 | 0 | enables Blast Arrow |
 | `ResonantArrowReady` | 3862 | 30 | 0 | enables Resonant Arrow |
 | `RadiantEncoreReady` | 3863 | 30 | 0 | enables Radiant Encore |
-| `Barrage` | 128 | 10 | 0 | `weaponskill_hits = 3`: the next `multi_hit_eligible` weaponskill lands three times. Corrections 8's 30 s is the Resonant Arrow window, which `ResonantArrowReady` carries |
+| `Barrage` | 128 | 10 | 0 | `weaponskill_hits = 3`: the next `multi_hit_eligible` weaponskill (Refulgent Arrow) lands three times; an action with `barrage_potency` takes that potency instead. Corrections 8's 30 s is the Resonant Arrow window, which `ResonantArrowReady` carries |
 | `WanderersMinuet` | 865 | 45 | 0 | `crit_add = 0.02`; `status_gained_id` of action 3559 |
 | `MagesBallad` | 139 | 45 | 0 | `damage_mult = 1.01`; `status_gained_id` of action 114 |
 | `ArmysPaeon` | 138 | 45 | 0 | `dh_add = 0.03`; `status_gained_id` of action 116 |
@@ -450,16 +455,31 @@ ids above are internal to the simulator** — the engine only ever compares
 `action.statusgainedid` to `buff.id`, never to a hard-coded number, so self-consistency is
 sufficient. They are flagged as unverified rather than presented as live-client facts.
 
-**Barrage's triple hit** is a table mechanic, not code: the `Barrage` status carries
-`weaponskill_hits: 3` and an action carries `multi_hit_eligible: true` when Barrage can
-multiply it (Burst Shot, Refulgent Arrow, Ladonsbite, Shadowbite and their level-sync
-precursors). `Simulation._consume_multi_hit` repeats the damage that many times on the
-first eligible weaponskill after Barrage and removes the status; an off-GCD, the potion
-or an ineligible weaponskill neither benefits nor consumes it. That last rule is what
-makes MECHANICS_CORRECTIONS.md item 15 reachable: the engine casts Resonant Arrow in the
-GCD between Barrage and the Refulgent Arrow, and only Refulgent is meant to be tripled.
-Both the hit count and the eligibility list are **assumptions** (§10) - the corrections
-document only records the Resonant Arrow transform.
+**Barrage's effect** is a table mechanic, not code, and per the job guide it is not
+always a triple hit:
+
+- `statuses.json` `Barrage` carries `weaponskill_hits: 3`, and `actions.json`
+  `multi_hit_eligible: true` marks the weaponskills that land that many times. **Only
+  Refulgent Arrow carries it** (280 -> 840).
+- `actions.json` `barrage_potency` marks the flat potency increase the AoE Hawk's Eye
+  weaponskills take instead: Shadowbite 200 -> 300 *per target*. (Wide Volley's
+  140 -> 220 is the same rule below level 72; Wide Volley is absent from
+  `CielBardData.Actions`, so the simulator has no record for it.) The two fields are
+  mutually exclusive and `tables.py` rejects a record that sets both.
+- `Simulation._potency_for` substitutes the override at cast time so that the cast record
+  and the damage events agree; `Simulation._consume_multi_hit` repeats the damage and
+  removes the status when the cast lands.
+- Everything else - Heavy Shot, Burst Shot, Ladonsbite, Quick Nock, Resonant Arrow, Apex,
+  the DoTs, Radiant Encore, every off-GCD and the potion - neither benefits from the buff
+  nor consumes it. That rule is what makes MECHANICS_CORRECTIONS.md item 15 reachable:
+  the engine casts Resonant Arrow in the GCD between Barrage and the Refulgent Arrow.
+
+The arithmetic this produces is the point of the v0.5.1 review's second high-priority
+finding: at two targets a Barrage-Refulgent Arrow is 840 while a Barrage-Shadowbite is
+only 300 x 2 = 600, so Shadowbite wins from three targets (900) upward even though a
+plain Hawk's Eye proc already prefers it at two (400 vs 280). The potencies come from the
+tooltips; what stays an **assumption** (§10) is that an ineligible weaponskill leaves the
+buff untouched instead of wasting it.
 
 ### 4.3 `sim/data/job.json`
 
@@ -488,9 +508,12 @@ Mechanics that are not per-action:
   "song_duration_s": 45.0,
   "coda_damage_mult": [1.0, 1.02, 1.04, 1.06],
   "radiant_encore_potency": [0, 700, 800, 1100],
-  "apex": {"gauge_min": 20, "gauge_max": 100, "potency_min": 100, "potency_max": 600,
+  "apex": {"gauge_min": 20, "gauge_max": 100, "potency_min": 140, "potency_max": 700,
            "blast_gauge_threshold": 80},
   "hawks_eye_proc_chance": 0.35,
+  "aoe_cluster_radius_yalms": 5.0,   // how far from the target an enemy may stand and
+                                     //   still be splashed by an AoE; mirrors the 5 y
+                                     //   cluster test in E.CountEnemiesNear
   "auto_attack_interval_s": 3.04,
   "gcd_queue_window_s": 0.5
 }
@@ -606,8 +629,9 @@ get the expected-value fast path.
 - **Apex Arrow**: `potency = potency_min + (gauge - gauge_min) * (potency_max -
   potency_min) / (gauge_max - gauge_min)`, rounded to the nearest integer, clamped to
   `[potency_min, potency_max]`. Used at `gauge >= blast_gauge_threshold` it grants
-  `BlastArrowReady`. **Verification note:** only the 600-at-100 endpoint is given in the
-  brief; the linear 100-at-20 floor is the simulator's assumption.
+  `BlastArrowReady`. **Verification note:** both endpoints - 140 potency at 20 gauge and
+  700 at 100 - are the official job guide's Patch 7.5 values; the linear interpolation
+  between them is the simulator's assumption.
 
 ### 4.6 Public API — literal signatures (C and D code against these)
 
@@ -820,7 +844,7 @@ class DamageModel:
 3. `test_unknown_status_in_grants_raises` — patched temp data dir, expects `SimDataError`.
 4. `test_duplicate_action_id_raises`.
 5. `test_missing_file_raises_simdataerror`.
-6. `test_apex_potency_curve` — 20 -> 100, 60 -> 350, 80 -> 475, 100 -> 600 (helper lives in
+6. `test_apex_potency_curve` — 20 -> 140, 60 -> 420, 80 -> 560, 100 -> 700 (helper lives in
    `tables.py` as `apex_potency(gauge: float, job: Mapping) -> int`).
 7. `test_gcd_haste_rounding` — helper `gcd_recast(base, haste_pct, rounding_ms)`:
    `(2.5, 0) -> 2.50`, `(2.5, 4) -> 2.40`, `(2.5, 16) -> 2.10`.
@@ -1005,8 +1029,10 @@ class FakeClient:
     def set_target(self, view: EntityView | None) -> None:
         """None makes Player:GetTarget() return nil."""
     def set_entities(self, views: Sequence[EntityView]) -> None:
-        """The EntityList(filter) result. The filter string is ignored except that
-        `incombat` in the filter drops entities with `incombat=False`."""
+        """The EntityList(filter) result. Two clauses of the filter string are
+        honoured: `incombat` drops entities with `incombat=False`, and
+        `maxdistance=N` drops entities whose `distance2d` exceeds N. The rest
+        (`alive`, `attackable`, ...) is the caller's responsibility."""
     def set_action(self, action_id: int, view: ActionView) -> None: ...
     def set_actions(self, views: Mapping[int, ActionView]) -> None:
         """Bulk form; preferred on the hot path."""
@@ -1241,7 +1267,8 @@ class FightConfig:
     pulse_ms: int = 30                    # also written into the engine config
     engine_config: Mapping[str, Any] = field(default_factory=dict)
     downtime: tuple[DowntimeWindow, ...] = ()
-    enemies: int = 1
+    enemies: int = 1                      # striking dummies; 1 is the engine's target
+    enemy_spread_yalms: float = 2.0       # ring radius the clones stand on around it
     stat_overrides: Mapping[str, float] = field(default_factory=dict)
     job_overrides: Mapping[str, Any] = field(default_factory=dict)
     use_potion: bool = False
@@ -1254,7 +1281,7 @@ class FightConfig:
     def validate(self) -> None:
         """Raises SimConfigError for: seconds <= 0, pulse_ms <= 0 or > 1000,
         ping_ms < 0, overlapping downtime windows, downtime beyond `seconds`,
-        enemies < 1."""
+        enemies < 1, enemy_spread_yalms < 0."""
 
     def engine_overrides(self) -> dict[str, Any]:
         """The full override mapping handed to FakeClient.init_engine: the caller's
@@ -1334,8 +1361,17 @@ Rules that make this unambiguous:
    death coincides with `seconds`. This is what feeds the engine's TTK estimator, which is
    what selects the terminal/ideal-finish bands the merged report cares about. `hp_current
    = hp_max * hp_percent / 100`. Buffs = our DoTs and any other target status.
-4. `set_entities([...])` — the primary target plus `enemies - 1` clones at the same
-   position with distinct ids (300, 301, ...) for AoE/multi-dot tests.
+4. `set_entities([...])` — the primary target at the origin plus `enemies - 1` clones
+   with distinct ids (300, 301, ...), evenly spaced on a ring of `enemy_spread_yalms`
+   around it. The engine never reads `enemies`: `E.CountEnemiesNear` counts the entities
+   whose `pos` is within 5 yalms of its target's out of
+   `EntityList("alive,attackable,maxdistance=30")`, and `E.FindMultiDotTarget` scans
+   `EntityList("alive,attackable,incombat,maxdistance=25")`, so the ring radius is what
+   decides whether the pack is an AoE group at all. `FakeClient` enforces the
+   `maxdistance` clause of both filters against each entity's `distance2d`
+   (`_PRIMARY_DISTANCE_YALMS + enemy_spread_yalms` for a clone), so a spread wide enough
+   to push the clones past 25/30 yalms removes them from the lists outright, exactly as
+   it would live.
 5. `set_actions(...)` for **every** action in the spec list, computed by §6.7.
 6. `set_last_cast(last_cast_id, t_us - last_cast_us in ms)`.
 7. `set_potions(...)` when `use_potion`.
@@ -1576,7 +1612,7 @@ gcds     205 (24.12/min)   ogcds 288   weaves/gcd 1.40
 uptime   gcd 98.7%   clipped 0.42s   rejections 0
 dots     Stormbite 99.1%   CausticBite 98.8%
 songs    WM 4x 43.9s   MB 4x 42.4s   AP 3x 35.0s
-waste    repertoire 2   soulvoice 0   charges 1
+waste    repertoire 2   soulvoice 0   charges 1   barrage 0
 counts   ApexArrow 8  Barrage 4  BattleVoice 5  BurstShot 63  ...
 ```
 
@@ -1595,7 +1631,8 @@ Full flag set for `sim.run`:
 | `--seed INT` | 1 | RNG seed |
 | `--ping FLOAT` | 0 | ms added to every animation lock |
 | `--pulse INT` | 30 | pulse period in ms, written into the engine config |
-| `--enemies INT` | 1 | targets within 5 y of the primary |
+| `--enemies INT` | 1 | striking dummies, including the engine's target |
+| `--enemy-spread YALMS` | 2.0 | ring radius the extra dummies stand on; above 5 the engine stops counting them as one pack |
 | `--downtime A:B` | none | repeatable, seconds |
 | `--set KEY=VALUE` | none | repeatable engine config override, dotted keys allowed; values parse as int, float, bool (`true`/`false`) or string |
 | `--stat KEY=VALUE` | none | repeatable `stats.json` override |
@@ -1753,14 +1790,17 @@ REPORT_ADPS_TOP10 = 34633.0
 ```
 
 The **"Unverified assumptions"** section must list every item flagged in this spec:
-Army's Muse/Ethos haste table, Apex potency floor at 20 gauge, non-DoT status ids,
-Radiant Encore 700/800/1100, Bloodletter 130 vs the level-100 Heartbreak upgrade, the
-0.6 s oGCD lock, the linear dummy HP model used to drive the engine's TTK estimator, the
-Repertoire DoT independence of MECHANICS_CORRECTIONS.md item 1
-(`job.repertoire_independent_of_dots`, default `true`), the guaranteed Barrage Hawk's Eye
-against the 35 % rate every other source rolls, Barrage's triple hit and its eligibility
-list (`weaponskill_hits` / `multi_hit_eligible`, §4.3), the 30 s transform windows and
-20 s burst-buff durations, and the crit/DH base-rate deconvolution of §7.2.
+Army's Muse/Ethos haste table, the linear shape of the Apex curve between its two
+documented endpoints, non-DoT status ids, Radiant Encore 700/800/1100, Bloodletter 130 vs
+the level-100 Heartbreak upgrade, the 0.6 s oGCD lock, the linear dummy HP model used to
+drive the engine's TTK estimator, the Repertoire DoT independence of
+MECHANICS_CORRECTIONS.md item 1 (`job.repertoire_independent_of_dots`, default `true`),
+the guaranteed Barrage Hawk's Eye against the 35 % rate every other source rolls,
+Barrage's two per-weaponskill effects and the rule that an ineligible weaponskill leaves
+the buff intact (`weaponskill_hits` / `multi_hit_eligible` / `barrage_potency`, §4.2),
+the AoE model for Apex Arrow, Blast Arrow, Resonant Arrow and Radiant Encore on a
+geometry-free clustered pack, the 30 s transform windows and 20 s burst-buff durations,
+and the crit/DH base-rate deconvolution of §7.2.
 
 `sim/README.md`'s "Modelling assumptions" section covers the same set in the README's own
 words; the two are not word-for-word identical and the README says so. `UNVERIFIED` is the
@@ -1900,12 +1940,12 @@ Recorded here and reproduced in `calibration.md` so nothing is chosen silently:
 |---|---|---|
 | Radiant Encore potency | 700 / 800 / 1100 by codas | brief only; commonly documented as 500/600/900 pre-7.2 — **flag** |
 | Bloodletter potency 130 | in tables, action disabled at 100 | conflicts with the level-100 Heartbreak upgrade — **flag** |
-| Apex Arrow floor | 100 potency at 20 gauge, linear to 600 at 100 | brief fixes only the 600 endpoint — **assumption** |
+| Apex Arrow curve | 140 potency at 20 gauge, linear to 700 at 100 | both endpoints are official job guide values; the linear shape between them is the **assumption** |
 | Army's Muse haste table | 1 / 2 / 4 / 12 % by stacks | not in the brief or the repo — **assumption** |
 | Repertoire on the song timer, DoT independent | 80 % every 3 s from 42 s to 3 s remaining; `repertoire_independent_of_dots` default `true` | corrections item 1; the guides describe the proc on the song timer alone — **assumption** |
 | Army's Ethos 30 s carry-over | modelled | not in the brief or the repo — **assumption** |
-| Barrage triple hit | `weaponskill_hits = 3` on the `Barrage` status; 10 s window | the corrections record only the Resonant Arrow transform — **assumption** |
-| Barrage eligibility | `multi_hit_eligible`: Burst Shot, Refulgent Arrow, Ladonsbite, Shadowbite (+ precursors); anything else neither benefits nor consumes it | not in the brief or the repo — **assumption** |
+| Barrage triple hit | `weaponskill_hits = 3` on the `Barrage` status; 10 s window; Refulgent Arrow only | tooltip value — **verified** |
+| Barrage eligibility | `multi_hit_eligible`: Refulgent Arrow only; `barrage_potency`: Shadowbite 300 (Wide Volley 220, unmodelled); anything else neither benefits nor consumes it | the potencies are tooltip values — **verified**; that an ineligible weaponskill leaves the buff intact is the **assumption** |
 | Barrage's Hawk's Eye is guaranteed | every other source rolls `hawks_eye_proc_chance` (35 %) | corrections item 7 — **assumption about the knob's scope** |
 | 30 s transform windows / 20 s burst buffs | `ResonantArrowReady`, `RadiantEncoreReady` 30 s; Battle Voice, Radiant Finale, Raging Strikes 20 s | corrections items 8, 9, 12 — **flag** |
 | oGCD animation lock 0.6 s | default, configurable | brief says 0.6; measured MMOMinion gaps in `HANDOFF.md` were 640-719 ms including client overhead — **flag** |

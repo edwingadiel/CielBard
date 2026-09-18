@@ -85,7 +85,7 @@
     "name": "Barrage",
     "duration_s": 10.0,
     "weaponskill_hits": 3,
-    "notes": "The live Barrage buff is 10 s and makes the next weaponskill hit three times (Refulgent Arrow 280 -> 840). MECHANICS_CORRECTIONS 8's 30 s is the Resonant Arrow transform window, which ResonantArrowReady carries. weaponskill_hits is the simulator's model of the triple hit: the corrections list only the transform. Id is simulator-internal (unverified)."
+    "notes": "The live Barrage buff is 10 s. It makes the next Refulgent Arrow hit three times (280 -> 840); that is the only action with the triple-hit tooltip, so weaponskill_hits applies only to actions.json multi_hit_eligible records. The AoE Hawk's Eye weaponskills take a flat potency increase instead (Shadowbite 200 -> 300, Wide Volley 140 -> 220), carried by actions.json barrage_potency. MECHANICS_CORRECTIONS 8's 30 s is the Resonant Arrow transform window, which ResonantArrowReady carries. Id is simulator-internal (unverified)."
   },
   "WanderersMinuet": {
     "id": 865,

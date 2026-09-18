@@ -489,7 +489,7 @@ class ReportFormattingTests(unittest.TestCase):
         assert lines[4] == "uptime   gcd 98.7%   clipped 0.42s   rejections 0", lines[4]
         assert lines[5] == "dots     Stormbite 99.1%   CausticBite 98.8%", lines[5]
         assert lines[6] == "songs    WM 4x 43.9s   MB 4x 42.4s   AP 3x 35.0s", lines[6]
-        assert lines[7] == "waste    repertoire 2   soulvoice 0   charges 1", lines[7]
+        assert lines[7] == "waste    repertoire 2   soulvoice 0   charges 1   barrage 0", lines[7]
         assert lines[8].startswith("counts   ApexArrow 8  Barrage 4  "), lines[8]
 
     def test_song_line_is_seconds_per_cast(self) -> None:
@@ -517,7 +517,10 @@ class RunCliTests(unittest.TestCase):
         assert self.proc.returncode == 0, self.proc.stderr
         first = self.proc.stdout.splitlines()[0]
         import re
-        assert re.match(r"^CielBard sim \d+\.\d+\.\d+ \| engine 0\.5\.1$", first), first
+        # Derive the engine version from the package under test so an engine bump
+        # only needs `sim/__init__.py` re-stamped, never this test.
+        pattern = r"^CielBard sim \d+\.\d+\.\d+ \| engine " + re.escape(sim_report.ENGINE_VERSION) + r"$"
+        assert re.match(pattern, first), first
 
     def test_run_output_layout(self) -> None:
         lines = self.proc.stdout.splitlines()

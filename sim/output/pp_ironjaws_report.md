@@ -1,5 +1,11 @@
 # Pitch Perfect and Iron Jaws: where the count gaps come from
 
+> **Stale.** This report predates the Patch 7.5 potency corrections (Apex Arrow
+> 140-700, Blast Arrow 700, Resonant Arrow 640) and the 0.5.1/0.5.2 engine
+> changes. Every DPS number, delta and p-value below was measured on the old
+> potency curve against engine 0.5.0, so it is kept as a record of what was run,
+> not as evidence for the current tree. Re-run before citing it again.
+
 - generated: 2026-09-17, sim 1.0.0, engine 0.5.0 (unmodified)
 - pulse 30 ms, ping 0 ms, one enemy, no downtime, no potion
 - `--stat potency_to_damage=132.401588` everywhere, so DPS is on the fitted scale

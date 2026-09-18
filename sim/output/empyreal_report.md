@@ -1,5 +1,11 @@
 # Why the engine loses Empyreal Arrow casts
 
+> **Stale.** This report predates the Patch 7.5 potency corrections (Apex Arrow
+> 140-700, Blast Arrow 700, Resonant Arrow 640) and the 0.5.1/0.5.2 engine
+> changes. Every DPS number, delta and p-value below was measured on the old
+> potency curve against engine 0.5.0, so it is kept as a record of what was run,
+> not as evidence for the current tree. Re-run before citing it again.
+
 Diagnosis of the largest per-action disagreement in `sim/output/calibration.md` section C:
 Empyreal Arrow at **3.462 casts/min** in the simulator against **3.937/min** in the top-10
 Vamp Fatale parses, where the 15 s recast allows **4.000/min**.

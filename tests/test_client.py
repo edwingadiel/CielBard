@@ -196,7 +196,7 @@ class ClientCase(unittest.TestCase):
 class TestLoadAndInit(ClientCase):
     def test_loads_shipped_lua_and_inits(self) -> None:
         client = self.client()
-        assert client.data["Version"] == "0.5.1"
+        assert client.data["Version"] == "0.5.2"
         assert int(client.data["BardJobID"]) == 23
         assert client.warnings() == []
         assert client.engine.state["lastDecision"] == "Initialized"
@@ -220,6 +220,11 @@ class TestLoadAndInit(ClientCase):
         # The shipped defaults must not have been mutated by the deep copy.
         assert client.data["AbilityDefaults"]["ApexArrow"] is True
         assert int(client.data["AoEDefaults"]["Ladonsbite"]) == 2
+        # sim/README.md's multi-target table copies these by hand, so pin the
+        # two it got wrong: Rain of Death is 2 (100/target vs Heartbreak Shot
+        # 180), and ShadowbiteBarrage is the Barrage-specific gate at 3.
+        assert int(client.data["AoEDefaults"]["RainOfDeath"]) == 2
+        assert int(client.data["AoEDefaults"]["ShadowbiteBarrage"]) == 3
         # Advanced mode makes the engine read the per-ability table.
         client.init_engine({"debug": False, "advancedEnabled": True, "abilities.ApexArrow": False})
         assert client.engine.AbilityEnabled("ApexArrow") is False
@@ -503,6 +508,30 @@ class TestEntities(ClientCase):
         # Shrinking the list removes the stale keys.
         client.set_entities([target])
         assert int(lua.globals().probe_count("alive,attackable,maxdistance=30")) == 1
+
+    def test_entity_list_filter_applies_maxdistance(self) -> None:
+        """`maxdistance=N` is enforced, because the engine never re-checks it.
+
+        `E.FindMultiDotTarget` trusts the filter and reads no `distance2d` of its
+        own, so an unbounded `--enemy-spread` used to hand it entities the live
+        client would never have listed.
+        """
+        client = self.client()
+        target = default_target()
+        near = EntityView(id=301, name="Near add", distance2d=20.0, pos=(1.0, 0.0, 0.0))
+        far = EntityView(id=302, name="Far add", distance2d=33.0, pos=(2.0, 0.0, 0.0))
+        client.set_entities([target, near, far])
+        lua = client.lua
+        lua.execute(
+            "function probe_ids(f) local t = {} for id in pairs(EntityList(f)) do"
+            " t[#t + 1] = id end table.sort(t) return table.concat(t, ',') end"
+        )
+        assert lua.globals().probe_ids("alive,attackable,maxdistance=30") == "200,301"
+        assert lua.globals().probe_ids("alive,attackable,incombat,maxdistance=25") == "200,301"
+        # A tighter bound drops the 20-yalm add as well.
+        assert lua.globals().probe_ids("alive,attackable,maxdistance=10") == "200"
+        # No maxdistance clause means no distance bound.
+        assert lua.globals().probe_ids("alive,attackable") == "200,301,302"
 
     def test_target_none_is_nil(self) -> None:
         client = self.client()

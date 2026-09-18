@@ -108,6 +108,11 @@ def add_fight_flags(parser: argparse.ArgumentParser, *, seconds: float = DEFAULT
                         help="milliseconds added to every animation lock")
     parser.add_argument("--pulse", type=int, default=DEFAULT_PULSE_MS,
                         help="pulse period in ms, also written into the engine config")
+    parser.add_argument("--enemy-spread", type=float, default=2.0, metavar="YALMS",
+                        dest="enemy_spread",
+                        help="radius of the ring the extra dummies stand on around the "
+                             "target (default 2.0; the engine only counts an entity "
+                             "within 5 yalms of its target as an AoE target)")
     parser.add_argument("--enemies", type=int, default=1,
                         help="number of targets in range of the primary")
     parser.add_argument("--downtime", action="append", metavar="A:B", default=[],
@@ -150,6 +155,7 @@ def config_from_args(args: argparse.Namespace, *, seed: int | None = None) -> Fi
         engine_config=parse_overrides(getattr(args, "engine_set", ())),
         downtime=downtime,
         enemies=args.enemies,
+        enemy_spread_yalms=args.enemy_spread,
         stat_overrides=parse_stat_overrides(getattr(args, "stat_set", ())),
         use_potion=bool(getattr(args, "potion", False)),
         deterministic_damage=bool(getattr(args, "deterministic", False)),

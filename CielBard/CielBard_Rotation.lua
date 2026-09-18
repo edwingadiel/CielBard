@@ -18,6 +18,13 @@ E.state = {
     radiantFinaleAt = 0,
     lastBurstActionID = 0,
     lastBurstActionAt = 0,
+    barrageAt = 0,
+    barrageStatusSeen = false,
+    pendingActionID = 0,
+    pendingTargetID = 0,
+    pendingAt = 0,
+    pendingWasOnCd = false,
+    pendingCd = nil,
     lastActionName = "Idle",
     lastDecision = "Disabled",
     currentSong = "NONE",
@@ -150,6 +157,70 @@ function E.AoEAllowed(key, ctx)
     local c = E.config or D.Defaults
     if not c.useAOE or not E.AbilityEnabled(key) then return false end
     return (ctx.enemies or 1) >= E.AoETargetsFor(key)
+end
+
+-- Barrage ------------------------------------------------------------------
+-- Barrage makes the next Refulgent Arrow strike three times (280 x 3 = 840)
+-- but only raises Shadowbite to 300 per target, so the Shadowbite/Refulgent
+-- decision has to know whether the pending Hawk's Eye proc is Barrage-fed.
+-- The preferred source is the live status on the player, read with the same
+-- helpers the song detection uses. Some builds do not expose the action's
+-- statusgainedid, so an observed or requested Barrage cast also starts a
+-- local 10 s timer as fallback.
+--
+-- The fallback is deliberately narrow. Barrage is spent by the next damaging
+-- weaponskill, usually one or two GCDs into the 10 s window, so a timer left
+-- running for the whole window would keep the Shadowbite threshold at three
+-- long after the proc was consumed. Two things bound it:
+--   * once the live status has been read at least once for this Barrage the
+--     status is authoritative and the timer is dropped, so it only ever
+--     covers the request-to-buff-application latency;
+--   * any observed weaponskill clears it, which is the only signal a build
+--     without statusgainedid gives that the buff was spent.
+
+local function noteBarrageCast(ticks)
+    local s = E.state
+    s.barrageAt = ticks or now()
+    s.barrageStatusSeen = false
+end
+
+function E.BarrageActive()
+    local s = E.state
+    local status = actionStatusID(A.Barrage)
+    if status and status ~= 0 and Player then
+        local remaining = buffRemaining(Player, status, Player.id)
+        if remaining > 0 then
+            s.barrageStatusSeen = true
+            return true, remaining
+        end
+        -- The status is readable and reports no buff. Trust the fallback
+        -- timer only until the buff has actually been seen once; after that
+        -- "no buff" means consumed or expired, not "not applied yet".
+        if s.barrageStatusSeen then return false, 0 end
+    end
+    local startedAt = s.barrageAt or 0
+    if startedAt > 0 then
+        local window = tonumber(D.BarrageWindowSeconds) or 10
+        local remaining = window - ((now() - startedAt) / 1000)
+        if remaining > 0 then return true, remaining end
+    end
+    return false, 0
+end
+
+-- Shadowbite needs its own gate because the alternative changes with Barrage:
+-- two targets against an ordinary proc (200 x 2 = 400 vs Refulgent 280) but
+-- three against a Barrage proc (300 x 3 = 900 vs Barrage-Refulgent 840).
+function E.ShadowbiteTargetsRequired()
+    if not E.BarrageActive() then return E.AoETargetsFor("Shadowbite") end
+    local c = E.config or D.Defaults
+    local thresholds = c.aoeTargets or {}
+    return tonumber(thresholds.ShadowbiteBarrage) or tonumber(D.AoEDefaults.ShadowbiteBarrage) or 3
+end
+
+function E.ShadowbiteAllowed(ctx)
+    local c = E.config or D.Defaults
+    if not c.useAOE or not E.AbilityEnabled("Shadowbite") then return false end
+    return (ctx.enemies or 1) >= E.ShadowbiteTargetsRequired()
 end
 
 function E.MinAoETargets()
@@ -290,6 +361,13 @@ function E.ResetCombat(reason)
     s.radiantFinaleAt = 0
     s.lastBurstActionID = 0
     s.lastBurstActionAt = 0
+    s.barrageAt = 0
+    s.barrageStatusSeen = false
+    s.pendingActionID = 0
+    s.pendingTargetID = 0
+    s.pendingAt = 0
+    s.pendingWasOnCd = false
+    s.pendingCd = nil
     s.currentSong = "NONE"
     s.songRemaining = 0
     s.songStartedAt = 0
@@ -397,6 +475,10 @@ function E.ObserveLastCast()
     s.lastObservedTimeSince = since
     if not isNew then return end
     s.lastObservedCastID = castID
+    -- A confirmed cast clears the pending-request guard: whatever the client
+    -- just executed, it is no longer waiting on the last request.
+    s.pendingActionID, s.pendingTargetID, s.pendingAt = 0, 0, 0
+    s.pendingWasOnCd, s.pendingCd = false, nil
     -- The potion request already counted itself as a weave.
     if s.potionActionID ~= 0 and castID == s.potionActionID then return end
     local ac = action(castID)
@@ -411,6 +493,11 @@ function E.ObserveLastCast()
     if castID == A.RagingStrikes or castID == A.BattleVoice or castID == A.RadiantFinale then
         startOrUpdateBurst(castID, now())
     end
+    if castID == A.Barrage then noteBarrageCast(now()) end
+    -- Barrage is consumed by the next damaging weaponskill, and D.GCD is
+    -- exactly that set. Checked after the Barrage branch so a Barrage seen in
+    -- the same pulse is not cleared by a GCD observed alongside it.
+    if D.GCD[castID] and s.barrageAt > 0 then s.barrageAt = 0 end
     local songKey = songKeyForAction(castID)
     if songKey then noteSongCast(songKey, now()) end
 end
@@ -443,23 +530,85 @@ function E.GetDotState(target)
     return storm, caustic
 end
 
+-- An accepted request stays "pending" briefly. Live clients can keep
+-- reporting an action ready for longer than the request throttle after Cast()
+-- returned true, which let the engine send the same cast several times. The
+-- guard is lifted by ObserveLastCast seeing any new cast, by the client
+-- reporting the action on cooldown, or by the window expiring.
+-- Execution is confirmed by the cooldown moving, not by isoncd alone. For a
+-- shared-charge action (Heartbreak Shot / Bloodletter / Rain of Death) isoncd
+-- is already true at any partial stack, so the flag by itself confirms nothing
+-- and the guard would never engage on the oGCD the engine presses most often.
+-- Spending a charge instead rewinds `cd` by one recast, which is what the
+-- second clause watches for.
+local function pendingExecuted(actionID)
+    local s = E.state
+    local ac = action(actionID)
+    if not ac then return false end
+    if ac.isoncd == true and not s.pendingWasOnCd then return true end
+    local cd = tonumber(ac.cd)
+    if cd and s.pendingCd and cd < s.pendingCd - 0.05 then return true end
+    return false
+end
+
+-- True while the client has not yet acknowledged the last accepted request.
+local function pendingUnconfirmed(ticks)
+    local s, c = E.state, E.config or D.Defaults
+    local window = tonumber(c.requestDedupeMs) or 0
+    if window <= 0 or s.pendingActionID == 0 then return false end
+    if ticks - s.pendingAt >= window then return false end
+    if pendingExecuted(s.pendingActionID) then return false end
+    return true
+end
+
+-- The hold has to be tier-wide, not per-action. Suppressing only the identical
+-- request made the engine fall through the priority chain and send a
+-- *different* weaponskill 60 ms behind the first; FFXIV's action queue takes
+-- the most recent command inside its window, so a 100-gauge Apex Arrow could
+-- be replaced by a 220-potency Burst Shot. Holding the whole tier keeps
+-- double-weaving intact (animation lock is ~600-700 ms, well outside the
+-- 350 ms window) while stopping that substitution.
+function E.PendingGCD(ticks)
+    return pendingUnconfirmed(ticks) and D.GCD[E.state.pendingActionID] == true
+end
+
+function E.PendingOGCD(ticks)
+    return pendingUnconfirmed(ticks) and D.GCD[E.state.pendingActionID] ~= true
+end
+
+-- Second line of defence, kept per-action inside TryCast.
+local function pendingSuppressed(actionID, targetID, ticks)
+    local s = E.state
+    if s.pendingActionID ~= actionID or s.pendingTargetID ~= targetID then return false end
+    return pendingUnconfirmed(ticks)
+end
+
 function E.TryCast(actionID, target, decision)
     local ticks, s = now(), E.state
     if ticks - s.lastRequestAt < E.config.requestThrottleMs then return false end
     local targetID = D.SelfTarget[actionID] and Player.id or (target and target.id)
-    if not targetID or not ready(actionID, targetID) then return false end
+    if not targetID or pendingSuppressed(actionID, targetID, ticks) then return false end
+    if not ready(actionID, targetID) then return false end
     local ac = action(actionID)
     local ok, result = pcall(function() return ac:Cast(targetID) end)
     if ok and result then
         s.lastRequestAt = ticks
         s.lastRequestID = actionID
+        s.pendingActionID, s.pendingTargetID, s.pendingAt = actionID, targetID, ticks
+        s.pendingWasOnCd, s.pendingCd = (ac.isoncd == true), tonumber(ac.cd)
         s.lastDecision = decision or (ac.name or tostring(actionID))
         local songKey = songKeyForAction(actionID)
         if songKey then noteSongCast(songKey, ticks) end
         if actionID == A.RagingStrikes or actionID == A.BattleVoice or actionID == A.RadiantFinale then
             startOrUpdateBurst(actionID, ticks)
         end
+        if actionID == A.Barrage then noteBarrageCast(ticks) end
         return true
+    end
+    -- Explicit rejection: drop the guard at once so the next pulse may retry.
+    if s.pendingActionID == actionID and s.pendingTargetID == targetID then
+        s.pendingActionID, s.pendingTargetID, s.pendingAt = 0, 0, 0
+        s.pendingWasOnCd, s.pendingCd = false, nil
     end
     return false
 end
@@ -728,6 +877,14 @@ end
 function E.TryGCD(ctx)
     local target, c = ctx.target, E.config
 
+    -- Hold the whole GCD tier while the client has not confirmed the last
+    -- accepted weaponskill, instead of letting the priority chain substitute a
+    -- different one into the same queue window.
+    if E.PendingGCD(now()) then
+        E.state.lastDecision = "Waiting for client to confirm last GCD"
+        return true
+    end
+
     -- Establish only the enabled DoTs. If Iron Jaws is Off (or one DoT is
     -- disabled), each enabled DoT is refreshed manually instead.
     if ctx.ttk > c.dotMinimumTTK then
@@ -793,8 +950,11 @@ function E.TryGCD(ctx)
 
     if E.AbilityEnabled("RadiantEncore") and ready(A.RadiantEncore, target.id) and
         E.TryCast(A.RadiantEncore, target, "Consume Radiant Encore") then return true end
-    if E.AoEAllowed("Shadowbite", ctx) and ready(A.Shadowbite, target.id) and
-        E.TryCast(A.Shadowbite, target, "Shadowbite cleave") then return true end
+    -- Shadowbite only outranks Refulgent Arrow at its own target threshold,
+    -- which is higher while Barrage is up (see E.ShadowbiteTargetsRequired).
+    if E.ShadowbiteAllowed(ctx) and ready(A.Shadowbite, target.id) and
+        E.TryCast(A.Shadowbite, target, E.BarrageActive() and "Shadowbite cleave under Barrage"
+            or "Shadowbite cleave") then return true end
     if E.AbilityEnabled("RefulgentArrow") and ready(A.RefulgentArrow, target.id) and
         E.TryCast(A.RefulgentArrow, target, "Consume Refulgent Arrow") then return true end
 
@@ -911,6 +1071,10 @@ end
 function E.TryOGCD(ctx)
     local s, c, target = E.state, E.config, ctx.target
     if s.weavesSinceGCD >= c.maxWeaves then return false end
+    if E.PendingOGCD(now()) then
+        s.lastDecision = "Waiting for client to confirm last oGCD"
+        return true
+    end
 
     if E.TryUtility(ctx) then return true end
     if E.TrySong(ctx) then return true end

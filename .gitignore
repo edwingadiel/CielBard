@@ -13,3 +13,11 @@ bard-analysis/output/killtime/errors.json
 # Workspace-only references and attachments
 reference-ffxivminion/
 upload/
+
+# Simulator output. Canonical, reviewable reports are versioned; per-seed and
+# intermediate JSON is a run artifact and is not. The rule and the reasoning are in
+# sim/README.md, "Repository output policy".
+sim/output/ab_*.json
+sim/output/sweep_*_confirm*.json
+sim/output/sweep_apex.json
+sim/output/batch.json

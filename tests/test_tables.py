@@ -292,14 +292,15 @@ class CurveTests(unittest.TestCase):
     """The derived curves Module A owns."""
 
     def test_apex_potency_curve(self) -> None:
+        """Patch 7.5: 140 potency at 20 gauge rising linearly to 700 at 100."""
         job = Tables.load().job
-        assert apex_potency(20, job) == 100
-        assert apex_potency(60, job) == 350
-        assert apex_potency(80, job) == 475
-        assert apex_potency(100, job) == 600
+        assert apex_potency(20, job) == 140
+        assert apex_potency(60, job) == 420
+        assert apex_potency(80, job) == 560
+        assert apex_potency(100, job) == 700
         # Clamped outside the documented range.
-        assert apex_potency(0, job) == 100
-        assert apex_potency(140, job) == 600
+        assert apex_potency(0, job) == 140
+        assert apex_potency(140, job) == 700
 
     def test_gcd_haste_rounding(self) -> None:
         assert abs(gcd_recast(2.5, 0) - 2.50) < 1e-9

@@ -36,17 +36,17 @@ if str(ROOT) not in sys.path:
 
 LUA_SHA256 = {
     "CielBard/CielBard_Rotation.lua":
-        "b3d5c5faa4ccae837c8aef8c95161e9e4c07725d0f61df8cfff46c06144aa5c7",
+        "82ee8345a7ecef1e6826c3f95550568f1a87689247107b199b98e30c0d6d4129",
     "CielBard/CielBard_Data.lua":
-        "ac5bfc79d6e57be3a40bf185ca63efd7bc25de810c880baba7786b6768742a0d",
+        "5b90cad69a90dd5ab0139fe73b98085283d8c7661457cc4f40ee937adfd1ee86",
 }
 # Same files with CRLF collapsed to LF, so a checkout with a different core.autocrlf
 # setting does not read as a tampered engine.
 LUA_SHA256_LF = {
     "CielBard/CielBard_Rotation.lua":
-        "b34f0e072fe7f0a103ef5697ce4c7b100b0e18bdc0037b1ddaf2aacd99300039",
+        "7bf51bc90fe5c0b8f84a58ecc5a11cf9fd297949700f3a544470e35eed5a624b",
     "CielBard/CielBard_Data.lua":
-        "ca469340820e57560ada5563e5259b7a9da6e462ca0bf891420f359ddfdefccc",
+        "5b784dfab42a5169f490622cd942159b7693331a322663dc2ef09489dcc0a7f7",
 }
 
 ENGINE_CHANGED = "the engine changed - re-baseline deliberately"
@@ -61,7 +61,7 @@ FALLBACK_JOB = {
     "army_paeon_max_stacks": 4,
     "army_paeon_haste_per_stack_pct": 4.0,
     "pitch_perfect_potency": [100, 220, 360],
-    "apex": {"potency_min": 100, "potency_max": 600},
+    "apex": {"potency_min": 140, "potency_max": 700},
     "soul_voice_max": 100,
     "pitch_perfect_max_stacks": 3,
     "dot_tick_s": 3.0,
@@ -97,6 +97,7 @@ class _FightConfig:
     engine_config: Mapping[str, Any] = field(default_factory=dict)
     downtime: tuple = ()
     enemies: int = 1
+    enemy_spread_yalms: float = 2.0
     stat_overrides: Mapping[str, float] = field(default_factory=dict)
     job_overrides: Mapping[str, Any] = field(default_factory=dict)
     use_potion: bool = False
@@ -895,6 +896,23 @@ class TestBurstWindowContents(unittest.TestCase):
                 f"the Refulgent Arrow at {refulgent.t_s:.2f}s landed {len(first)} "
                 f"time(s), expected {hits} under Barrage")
 
+    def test_23f_no_barrage_expires_unused(self) -> None:
+        """A Barrage nothing consumes is a 120 s raid buff thrown away.
+
+        `_handle_status_expire` is the expiry-only path - `_consume_multi_hit`
+        removes the status through `_remove_status` instead - so this counter is
+        non-zero exactly when the window ran out with no damaging weaponskill in
+        it. It reads 0 on this fixture, which is what makes it a useful pin: a
+        rotation change that starves the Barrage proc moves it off 0.
+        """
+        wasted = self.result.wasted
+        assert "barrage_expired" in wasted, (
+            "FightResult.wasted no longer reports barrage_expired")
+        casts = [c.key for c in self.casts].count("Barrage")
+        assert wasted["barrage_expired"] == 0, (
+            f"{wasted['barrage_expired']} of {casts} Barrage casts expired without "
+            f"buffing a weaponskill")
+
     def test_23d_the_dots_are_resnapshotted_inside_every_window(self) -> None:
         for start in self.windows:
             keys = [c.key for c in self._window(start)]
@@ -915,6 +933,211 @@ class TestBurstWindowContents(unittest.TestCase):
             if key == "BlastArrow":
                 before = keys[:index]
                 assert "ApexArrow" in before, "a Blast Arrow preceded every Apex Arrow"
+
+
+class TestMultiTargetScenarios(unittest.TestCase):
+    """Review item "Recommended #7": 2-, 3- and 5-dummy packs.
+
+    A pack is `FightConfig.enemies` dummies standing on a ring of
+    `FightConfig.enemy_spread_yalms` around the engine's target. The engine never
+    reads that number: it counts the pack itself out of
+    `EntityList("alive,attackable,maxdistance=30")`, keeping only entities whose
+    `pos` is within 5 yalms of its target (`CielBard_Rotation.lua`
+    `E.CountEnemiesNear`), and it scans
+    `EntityList("alive,attackable,incombat,maxdistance=25")` for multi-dot
+    candidates (`E.FindMultiDotTarget`). So these tests prove the fake client's
+    entity list, not a configuration flag, is what turns the AoE replacements on:
+    `test_24f` scatters the same three dummies 12 yalms apart and the engine goes
+    back to its single-target rotation.
+    """
+
+    COUNTS = (1, 2, 3, 5)
+    SPREAD = 2.0
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if USING_STUB:  # pragma: no cover - the stub models no AoE at all
+            raise unittest.SkipTest("multi-target scenarios need the real simulator")
+        cls.results = {
+            n: run_fight(base_config(enemies=n, enemy_spread_yalms=cls.SPREAD))
+            for n in cls.COUNTS
+        }
+        cls._report()
+
+    # --- reporting ------------------------------------------------------
+
+    @classmethod
+    def _report(cls) -> None:
+        """Print the per-action cast counts side by side, one column per pack size."""
+        keys = sorted({k for r in cls.results.values() for k in r.action_counts})
+        width = max((len(k) for k in keys), default=0)
+        header = "  ".join(f"{n:>6}" for n in cls.COUNTS)
+        print(f"\n[multi-target] 60 s seed 7, dummies on a {cls.SPREAD:g}-yalm ring")
+        print(f"{'action':<{width}}  {header}")
+        for key in keys:
+            row = "  ".join(
+                f"{cls.results[n].action_counts.get(key, 0):>6}" for n in cls.COUNTS
+            )
+            print(f"{key:<{width}}  {row}")
+        for label, value in (
+            ("dps", lambda r: f"{r.dps:>6.0f}"),
+            ("potency", lambda r: f"{r.total_potency:>6}"),
+            ("hits", lambda r: f"{r.damage_event_count:>6}"),
+        ):
+            row = "  ".join(value(cls.results[n]) for n in cls.COUNTS)
+            print(f"{label:<{width}}  {row}")
+
+    # --- helpers --------------------------------------------------------
+
+    @staticmethod
+    def _hits(result: Any, key: str) -> list[Any]:
+        return [d for d in result.damage if d.key == key and d.source == "direct"]
+
+    AOE_KEYS = ("Ladonsbite", "Shadowbite", "RainOfDeath")
+
+    # --- tests ----------------------------------------------------------
+
+    def test_24_single_target_uses_no_aoe_replacement(self) -> None:
+        counts = self.results[1].action_counts
+        used = {k: counts[k] for k in self.AOE_KEYS if counts.get(k)}
+        assert not used, f"a lone dummy drew AoE actions: {used}"
+
+    def test_24b_a_pack_switches_the_engine_to_its_aoe_actions(self) -> None:
+        """Two and three dummies must reach the engine's `aoeTargets` thresholds."""
+        for n in (2, 3, 5):
+            counts = self.results[n].action_counts
+            used = {k: counts[k] for k in self.AOE_KEYS if counts.get(k)}
+            assert used, (
+                f"{n} dummies drew no AoE action at all; the engine counted "
+                f"the pack as {counts}")
+            assert counts.get("Ladonsbite", 0) > 0, (
+                f"{n} dummies drew no Ladonsbite: {counts}")
+
+    def test_24c_an_aoe_action_without_falloff_hits_every_dummy(self) -> None:
+        """Shadowbite, Ladonsbite and Rain of Death are per-target, full potency."""
+        tables = _tables()
+        for n in self.COUNTS:
+            result = self.results[n]
+            for key in self.AOE_KEYS:
+                action = tables.action(key)
+                assert action.aoe is True, key
+                assert action.falloff == 0.0, f"{key} should have no falloff"
+                casts = result.action_counts.get(key, 0)
+                hits = self._hits(result, key)
+                assert len(hits) == casts * n, (
+                    f"{n} dummies: {casts} {key} casts produced {len(hits)} damage "
+                    f"events, expected {casts * n}")
+                potencies = {d.potency for d in hits}
+                assert potencies <= {action.potency, action.barrage_potency} - {0}, (
+                    f"{key} landed at unexpected potencies {sorted(potencies)}")
+
+    def test_24d_an_aoe_action_with_falloff_halves_every_extra_dummy(self) -> None:
+        """Blast Arrow, Resonant Arrow and Radiant Encore: first target, then 50 %."""
+        tables = _tables()
+        for key in ("BlastArrow", "ResonantArrow", "RadiantEncore"):
+            action = tables.action(key)
+            assert action.aoe is True, f"{key} is a falloff AoE"
+            assert abs(action.falloff - 0.5) < 1e-12, f"{key} falloff"
+        for n in self.COUNTS:
+            result = self.results[n]
+            for key in ("BlastArrow", "ResonantArrow", "RadiantEncore"):
+                casts = result.action_counts.get(key, 0)
+                if not casts:
+                    continue
+                hits = self._hits(result, key)
+                assert len(hits) == casts * n, (
+                    f"{n} dummies: {casts} {key} casts produced {len(hits)} hits")
+                full = [d.potency for d in hits[:1]]
+                if n > 1:
+                    splash = hits[1].potency
+                    assert splash == round(full[0] * 0.5), (
+                        f"{key} splash {splash} is not half of {full[0]}")
+
+    def test_24e_more_dummies_never_lose_damage(self) -> None:
+        previous = 0.0
+        for n in self.COUNTS:
+            total = self.results[n].total_damage
+            assert total > previous, (
+                f"{n} dummies dealt {total:.0f}, no more than {previous:.0f}")
+            previous = total
+
+    def test_24f_a_scattered_pack_is_not_an_aoe_pack(self) -> None:
+        """12 yalms apart is outside `CountEnemiesNear`'s 5-yalm cluster test.
+
+        The engine then counts one enemy and runs its single-target rotation, which
+        is what proves the AoE switch comes from `EntityList` and `entity.pos` and
+        not from `FightConfig.enemies`.
+        """
+        scattered = run_fight(base_config(enemies=3, enemy_spread_yalms=12.0))
+        used = {k: scattered.action_counts[k]
+                for k in self.AOE_KEYS if scattered.action_counts.get(k)}
+        assert not used, f"a scattered pack still drew AoE actions: {used}"
+        lone = self.results[1]
+        assert [(c.t_s, c.key) for c in scattered.casts] == \
+            [(c.t_s, c.key) for c in lone.casts], (
+            "a scattered 3-pack must take the same decisions as a lone dummy")
+        # And the damage model agrees: nothing splashes onto a dummy the engine does
+        # not count as part of the pack.
+        assert abs(scattered.total_damage - lone.total_damage) < 1e-6, (
+            f"a scattered 3-pack dealt {scattered.total_damage:.0f} against the lone "
+            f"dummy's {lone.total_damage:.0f}")
+
+    def test_24g_the_ring_radius_does_not_change_the_rotation(self) -> None:
+        """Any spread inside the 5-yalm cluster test is the same fight."""
+        tight = run_fight(base_config(enemies=3, enemy_spread_yalms=0.5))
+        wide = self.results[3]
+        assert [(c.t_s, c.key, c.potency) for c in tight.casts] == \
+            [(c.t_s, c.key, c.potency) for c in wide.casts]
+        assert abs(tight.total_damage - wide.total_damage) < 1e-6
+
+    def test_24h_barrage_is_spent_correctly_in_every_pack(self) -> None:
+        """Either a triple-hit Refulgent Arrow or a 300-potency Shadowbite, never both.
+
+        This is the review's second high-priority finding expressed end to end: the
+        Barrage buff has exactly one consumer per Barrage cast, and whichever
+        weaponskill consumes it takes the effect its own tooltip describes.
+        """
+        tables = _tables()
+        hits = barrage_weaponskill_hits()
+        shadowbite = tables.action("Shadowbite")
+        refulgent = tables.action("RefulgentArrow")
+        for n in self.COUNTS:
+            result = self.results[n]
+            barrages = result.action_counts.get("Barrage", 0)
+            assert barrages > 0, f"{n} dummies: no Barrage in 60 s"
+            tripled = self._tripled_refulgent_casts(result, refulgent, hits)
+            boosted = [c for c in result.casts
+                       if c.key == "Shadowbite" and c.potency == shadowbite.barrage_potency]
+            consumers = tripled + len(boosted)
+            assert consumers <= barrages, (
+                f"{n} dummies: {consumers} Barrage consumers for {barrages} Barrages")
+            for cast in boosted:
+                assert cast.potency == 300, cast
+            # No Shadowbite may ever land three times: Barrage raises its potency.
+            per_cast = len(self._hits(result, "Shadowbite")) / max(
+                1, result.action_counts.get("Shadowbite", 0))
+            assert per_cast in (0.0, float(n)), (
+                f"{n} dummies: {per_cast} Shadowbite damage events per cast")
+
+    @staticmethod
+    def _tripled_refulgent_casts(result: Any, refulgent: Any, hits: int) -> int:
+        """How many Refulgent Arrow casts produced `hits` damage events."""
+        total = len([d for d in result.damage
+                     if d.key == "RefulgentArrow" and d.source == "direct"])
+        casts = result.action_counts.get("RefulgentArrow", 0)
+        extra = total - casts
+        assert extra % (hits - 1) == 0, (
+            f"{total} Refulgent Arrow hits for {casts} casts is not a whole number "
+            f"of {hits}-hit casts")
+        return extra // (hits - 1)
+
+
+@lru_cache(maxsize=1)
+def _tables() -> Any:
+    """`sim.tables.Tables` for the assertions that read action metadata."""
+    from sim.tables import Tables
+
+    return Tables.load()
 
 
 if __name__ == "__main__":

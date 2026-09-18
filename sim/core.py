@@ -12,6 +12,7 @@ here are ability keys, event kinds and simulator policy limits.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -69,6 +70,9 @@ MAX_REJECTION_FRACTION = 0.05
 US = 1_000_000
 # "Undamaged" on the client's 0..100 HP scale; a unit of the API, not a game mechanic.
 FULL_HP_PERCENT = 100.0
+# Where the player stands relative to dummy 1, in yalms. It is `EntityView.distance2d`'s
+# default and only has to stay under the engine's 25-yalm target range gate.
+_PRIMARY_DISTANCE_YALMS = 3.0
 
 # Ability keys the engine falls back to below level 100; never castable here.
 LEVEL_SYNC_DISABLED = frozenset(
@@ -200,7 +204,8 @@ class FightResult:
     song_seconds: Dict[str, float]
     song_casts: Dict[str, int]
     wasted: Dict[str, int]        # "repertoire_overcap", "soul_voice_overcap",
-                                  # "hawks_eye_overwritten", "charge_overcap"
+                                  # "hawks_eye_overwritten", "charge_overcap",
+                                  # "barrage_expired" (a Barrage nothing consumed)
     casts: Tuple[CastRecord, ...]
     damage: Tuple[DamageRecord, ...]
     rejections: Tuple[CoreRejection, ...]
@@ -367,6 +372,11 @@ class Simulation:
         self._potion_mult = float(self.stats.get("potion_damage_mult", 1.0))
         self._auto_dps = float(self.stats.get("auto_attack_dps", 0.0))
         self._hawks_eye_chance = float(self.job["hawks_eye_proc_chance"])
+        # How far from the primary target an enemy may stand and still be hit by an AoE.
+        # It is the same 5 yalms `CielBard_Rotation.lua`'s `E.CountEnemiesNear` uses to
+        # decide whether a pack is one AoE group, so the damage model and the engine
+        # agree about which dummies are in the pack.
+        self._aoe_cluster_radius = float(self.job.get("aoe_cluster_radius_yalms", 5.0))
         # Statuses that make the next damaging weaponskill land more than once
         # (Barrage: three hits). Read from `statuses.json` rather than named here,
         # so the mechanic stays in the tables.
@@ -421,6 +431,7 @@ class Simulation:
             "soul_voice_overcap": 0,
             "hawks_eye_overwritten": 0,
             "charge_overcap": 0,
+            "barrage_expired": 0,
         }
         self._client_rejections: List[ClientRejection] = []
         self._warnings: Tuple[str, ...] = ()
@@ -566,13 +577,65 @@ class Simulation:
         return float(data.recast_s)
 
     def _build_entities(self) -> None:
-        """Create the primary target and its clones, all within AoE range of each other."""
+        """Create the primary target and its clones as one pack the engine can count.
+
+        Dummy 1 sits at the origin and is the engine's target; clone `i` stands on a
+        ring of radius `config.enemy_spread_yalms` around it, evenly spaced, so that
+        the pack has real geometry rather than several entities sharing one point.
+
+        The engine reads that geometry twice, and both reads are what make an AoE
+        scenario work at all (`CielBard_Rotation.lua`):
+
+        * `CountEnemiesNear` takes `EntityList("alive,attackable,maxdistance=30")` and
+          counts the entities whose `pos` is within 5 yalms of the target's - that
+          count becomes `ctx.enemies` and drives every `AoETargetsFor` threshold.
+        * `FindMultiDotTarget` takes `EntityList("alive,attackable,incombat,`
+          `maxdistance=25")` and picks secondary DoT targets out of it.
+
+        `FakeClient.set_entities` publishes this list under both filters, applying the
+        two clauses the engine relies on: `incombat`, and `maxdistance` against each
+        entity's `distance2d`. The distance one matters because the engine never
+        re-checks it, so without it an unbounded `enemy_spread_yalms` would hand
+        `FindMultiDotTarget` entities the live client could not have listed. A default
+        spread of 2 yalms puts every clone inside the 5-yalm cluster test and a spread
+        above 5 leaves the engine seeing a single target, which is a scenario worth
+        running.
+        """
         self.entities = []
-        for index in range(max(1, int(self.config.enemies))):
+        count = max(1, int(self.config.enemies))
+        spread = float(self.config.enemy_spread_yalms)
+        for index in range(count):
             entity_id = self.target_id if index == 0 else self._clone_base_id + index - 1
-            view = EntityView(id=entity_id, name=f"Striking Dummy {index + 1}")
+            if index == 0:
+                pos = (0.0, 0.0, 0.0)
+                distance2d = _PRIMARY_DISTANCE_YALMS
+            else:
+                angle = 2.0 * math.pi * (index - 1) / max(1, count - 1)
+                pos = (
+                    round(spread * math.cos(angle), 6),
+                    0.0,
+                    round(spread * math.sin(angle), 6),
+                )
+                # The player stands `_PRIMARY_DISTANCE_YALMS` from dummy 1, so the
+                # worst case for a clone is that far again plus the ring radius. The
+                # engine only range-gates its own target (`distance2d > 25`), but the
+                # value has to stay honest for the multi-dot scan's 25-yalm filter.
+                distance2d = _PRIMARY_DISTANCE_YALMS + spread
+            view = EntityView(
+                id=entity_id,
+                name=f"Striking Dummy {index + 1}",
+                pos=pos,
+                distance2d=distance2d,
+            )
             self.entities.append(view)
             self.entity_statuses[entity_id] = {}
+        # Clones all stand at `spread`, so this is all of them or none of them. It is the
+        # number of *extra* targets an AoE splashes onto: a pack scattered wider than the
+        # cluster radius is not an AoE group for the damage model either, which is what
+        # keeps it consistent with the engine's own count.
+        self._aoe_splash_count = (
+            count - 1 if spread <= self._aoe_cluster_radius else 0
+        )
 
     # ------------------------------------------------------------------
     # clock
@@ -756,6 +819,13 @@ class Simulation:
         if instance is None or instance.expires_us != expires_us:
             return
         del holder[key]
+        # This is the expiry-only path: `_consume_multi_hit` removes the status
+        # through `_remove_status`, which does not come through here. So a
+        # multi-hit status reaching this point is a Barrage no weaponskill ever
+        # spent - a 120 s raid buff thrown away, which otherwise left no trace
+        # in any metric.
+        if who == PLAYER and key in self._multi_hit_statuses:
+            self.wasted_procs["barrage_expired"] += 1
         self._on_status_removed(who, key, event.t_us)
 
     def _on_status_removed(self, who: int, key: str, t_us: int) -> None:
@@ -782,11 +852,11 @@ class Simulation:
             hits = self._consume_multi_hit(record, t)
             for _ in range(hits):
                 self._deal_damage(t, action_id, key, "direct", potency, snapshot)
-                if record is not None and record.aoe and len(self.entities) > 1:
+                if record is not None and record.aoe and self._aoe_splash_count:
                     share = record.falloff if record.falloff > 0 else 1.0
                     splash = int(round(potency * share))
                     if splash > 0:
-                        for _ in range(len(self.entities) - 1):
+                        for _ in range(self._aoe_splash_count):
                             self._deal_damage(t, action_id, key, "direct", splash, snapshot)
 
         if key == KEY_POTION:
@@ -1124,26 +1194,56 @@ class Simulation:
                 snapshot=snapshot if status.dot_potency > 0 else None,
             )
 
+    def _barrage_status(self) -> Optional[str]:
+        """The active multi-hit (Barrage) status key, or None.
+
+        Which status that is comes from `statuses.json` (`weaponskill_hits > 1`), so
+        no Barrage constant appears in this module.
+        """
+        for key in self._multi_hit_statuses:
+            if key in self.player_statuses:
+                return key
+        return None
+
+    def _barrage_benefits(self, data: Optional[ActionData]) -> bool:
+        """True when Barrage would change this cast, and so is spent by it.
+
+        The two Barrage effects are mutually exclusive per action and both live in
+        `actions.json`: `multi_hit_eligible` (the triple hit, Refulgent Arrow only)
+        and `barrage_potency` (the flat potency increase the AoE Hawk's Eye
+        weaponskills get instead: Shadowbite 200 -> 300, Wide Volley 140 -> 220).
+        """
+        if data is None or not data.is_gcd:
+            return False
+        return data.multi_hit_eligible or data.barrage_potency > 0
+
     def _consume_multi_hit(self, data: Optional[ActionData], t_us: int) -> int:
         """How many times this cast lands, spending any multi-hit status.
 
-        Barrage makes the *next eligible weaponskill* hit `weaponskill_hits` times
-        (3, so a 280-potency Refulgent Arrow is worth 840) and is consumed by it.
-        The hit count lives in `statuses.json` and eligibility in `actions.json`
-        (`multi_hit_eligible`: Burst Shot, Refulgent Arrow, Ladonsbite, Shadowbite
-        and their level-sync precursors), so no Barrage constant appears here. An
-        off-GCD, the potion or an ineligible weaponskill - Resonant Arrow, Apex, the
-        DoTs, Radiant Encore - neither benefits nor consumes the buff; the engine
-        casts Resonant Arrow between Barrage and the Refulgent Arrow, so that
-        distinction is what makes MECHANICS_CORRECTIONS.md item 15 reachable.
+        Barrage is consumed by the next weaponskill it actually changes, and what it
+        does to that weaponskill is per-action data, never a rule here:
+
+        * `multi_hit_eligible` (Refulgent Arrow alone) lands `weaponskill_hits` times,
+          so a 280-potency Refulgent Arrow is worth 840.
+        * `barrage_potency` (Shadowbite, and Wide Volley below level 72) lands once at
+          the higher potency instead; `_potency_for` has already substituted it.
+
+        Everything else - Burst Shot, Heavy Shot, Ladonsbite, Quick Nock, Resonant
+        Arrow, Apex, the DoTs, Radiant Encore, every off-GCD and the potion - neither
+        benefits from the buff nor consumes it. That is what lets the engine's
+        Barrage -> Resonant Arrow -> Refulgent Arrow ordering produce the
+        Barrage-buffed Refulgent Arrow of MECHANICS_CORRECTIONS.md item 15.
         """
-        if data is None or not data.is_gcd or not data.multi_hit_eligible:
+        if not self._barrage_benefits(data):
             return 1
-        for key in self._multi_hit_statuses:
-            if key in self.player_statuses:
-                self._remove_status(PLAYER, key, t_us)
-                return int(self.tables.statuses[key].weaponskill_hits)
-        return 1
+        key = self._barrage_status()
+        if key is None:
+            return 1
+        self._remove_status(PLAYER, key, t_us)
+        assert data is not None  # _barrage_benefits rejects None
+        if not data.multi_hit_eligible:
+            return 1
+        return int(self.tables.statuses[key].weaponskill_hits)
 
     def _consume_requires(self, data: ActionData, t_us: int) -> None:
         """Remove the statuses an action consumes."""
@@ -1644,7 +1744,14 @@ class Simulation:
         )
 
     def _potency_for(self, key: str, data: ActionData) -> int:
-        """The potency one cast of `key` is worth right now."""
+        """The potency one cast of `key` is worth right now.
+
+        A Barrage potency override (`actions.json` `barrage_potency`) is applied here
+        rather than at execution so that the `CastRecord` and the damage events agree;
+        `_consume_multi_hit` spends the status when the cast lands.
+        """
+        if data.barrage_potency > 0 and self._barrage_status() is not None:
+            return int(data.barrage_potency)
         if key == KEY_APEX:
             return int(apex_potency(self.soul_voice, self.job))
         if key == KEY_PITCH_PERFECT:

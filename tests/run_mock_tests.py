@@ -119,6 +119,8 @@ function resetHarness()
         item.highlighted = false
         item.cd = 0
         item.cdmax = 60
+        item.isoncd = nil
+        item.statusgainedid = nil
     end
     Player.gauge = {}
     Player.buffs = {}
@@ -130,6 +132,9 @@ function resetHarness()
     local config = clone(CielBardData.Defaults)
     config.requestThrottleMs = 0
     config.pulseMs = 0
+    -- Timing gates are disabled for the priority tests the same way the
+    -- throttle and the pulse are; the dedupe window has its own case below.
+    config.requestDedupeMs = 0
     config.requireCombat = false
     CielBardEngine.Init(config)
     CielBardEngine.state.potionScanAt = 0
@@ -142,6 +147,19 @@ end
 
 function setReady(id, value)
     ActionList:Get(1, id).ready = value ~= false
+end
+
+-- Live Barrage: the client exposes the action's statusgainedid and the buff
+-- sits on the player. 122 is a stand-in id; the engine reads it from the
+-- action, exactly as it does for songs.
+function setBarrageStatus(remaining)
+    ActionList:Get(1, CielBardData.Actions.Barrage).statusgainedid = 122
+    Player.buffs = remaining and { { id = 122, ownerid = 100, duration = remaining } } or {}
+end
+
+function clearBarrageStatus()
+    ActionList:Get(1, CielBardData.Actions.Barrage).statusgainedid = nil
+    Player.buffs = {}
 end
 
 function lastCastID()
@@ -298,6 +316,258 @@ ctx.enemies = 2
 ctx.aoe = true
 expect(E.TryGCD(ctx), "proc consumption should cast")
 expect(lastCastID() == A.RefulgentArrow, "Shadowbite below its threshold should yield to Refulgent")
+
+----------------------------------------------------------------------------
+-- Barrage-aware Shadowbite (0.5.1 review, High #2).
+-- Ordinary Hawk's Eye proc: Shadowbite 200/target beats Refulgent 280 at two.
+-- Barrage proc: Refulgent strikes three times (840) while Shadowbite is only
+-- 300/target, so Shadowbite needs three targets.
+----------------------------------------------------------------------------
+
+local function shadowbiteContext(enemies)
+    local sc = directContext()
+    sc.enemies = enemies
+    sc.aoe = true
+    return sc
+end
+
+-- Two targets, no Barrage -> Shadowbite.
+c = resetHarness()
+expect(E.AoETargetsFor("Shadowbite") == 2, "default Shadowbite threshold should be two targets")
+expect(c.aoeTargets.ShadowbiteBarrage == 3, "default Barrage Shadowbite threshold should be three targets")
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+expect(not E.BarrageActive(), "Barrage must not be reported active on a clean reset")
+expect(E.ShadowbiteTargetsRequired() == 2, "without Barrage the ordinary threshold applies")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.Shadowbite, "two targets on an ordinary proc should use Shadowbite")
+
+-- Two targets, Barrage active (live status) -> Refulgent Arrow.
+c = resetHarness()
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+setBarrageStatus(8)
+expect(E.BarrageActive(), "the live Barrage status should be detected")
+expect(E.ShadowbiteTargetsRequired() == 3, "Barrage should raise the Shadowbite threshold")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.RefulgentArrow, "two targets under Barrage should use Refulgent Arrow")
+
+-- Three targets, Barrage active -> Shadowbite.
+c = resetHarness()
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+setBarrageStatus(8)
+expect(E.TryGCD(shadowbiteContext(3)), "proc consumption should cast")
+expect(lastCastID() == A.Shadowbite, "three targets under Barrage should use Shadowbite")
+
+-- An expired Barrage status falls back to the ordinary threshold.
+c = resetHarness()
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+setBarrageStatus(nil)
+ActionList:Get(1, A.Barrage).statusgainedid = 122
+expect(not E.BarrageActive(), "an absent Barrage buff must not count as active")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.Shadowbite, "two targets with Barrage expired should use Shadowbite")
+
+-- Fallback timer: no statusgainedid on this build, so a requested Barrage
+-- cast starts a local 10 s window that gates Shadowbite the same way.
+c = resetHarness()
+clearBarrageStatus()
+setReady(A.Barrage)
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+expect(not E.BarrageActive(), "no status and no cast means no Barrage")
+expect(E.TryCast(A.Barrage, target, "Barrage"), "Barrage request should be accepted")
+expect(lastCastTarget() == Player.id, "Barrage is requested on the player")
+expect(E.BarrageActive(), "an accepted Barrage request should start the fallback timer")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.RefulgentArrow, "the fallback timer blocks Shadowbite until the buff is spent")
+-- That Refulgent Arrow consumed the Barrage. On a build with no status to
+-- read, the observed weaponskill is the only consumption signal there is, so
+-- the timer has to clear instead of running out the rest of the 10 s window.
+Player.castinginfo = { lastcastid = A.RefulgentArrow, timesincecast = 50 }
+E.ObserveLastCast()
+Player.castinginfo = { lastcastid = 0, timesincecast = 999999 }
+expect(not E.BarrageActive(), "a weaponskill after Barrage consumes it and clears the fallback timer")
+expect(E.ShadowbiteTargetsRequired() == 2, "the ordinary threshold returns once Barrage is spent")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.Shadowbite, "the proc after a consumed Barrage goes to Shadowbite")
+
+-- With nothing observed at all the window still expires on its own.
+c = resetHarness()
+clearBarrageStatus()
+setReady(A.Barrage)
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+expect(E.TryCast(A.Barrage, target, "Barrage"), "Barrage request should be accepted")
+expect(E.BarrageActive(), "an accepted Barrage request should start the fallback timer")
+ticks = ticks + 11000 -- past CielBardData.BarrageWindowSeconds
+expect(not E.BarrageActive(), "the fallback timer should expire after the 10 s window")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.Shadowbite, "after the window Shadowbite wins at two targets again")
+
+-- A readable status is authoritative. Once the buff has been seen, its
+-- disappearance means the proc was consumed, and the fallback timer must not
+-- keep the threshold at three for the rest of the window.
+c = resetHarness()
+setReady(A.Barrage)
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+ActionList:Get(1, A.Barrage).statusgainedid = 122
+Player.buffs = {}
+expect(E.TryCast(A.Barrage, target, "Barrage"), "Barrage request should be accepted")
+expect(E.BarrageActive(), "the timer still covers the request-to-buff latency window")
+setBarrageStatus(9)
+expect(E.BarrageActive(), "the buff is readable once it lands")
+expect(E.ShadowbiteTargetsRequired() == 3, "Barrage should raise the Shadowbite threshold")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.RefulgentArrow, "two targets under Barrage should use Refulgent Arrow")
+Player.buffs = {} -- Refulgent Arrow consumed the Barrage
+expect(not E.BarrageActive(), "a consumed Barrage must not be kept alive by the fallback timer")
+expect(E.ShadowbiteTargetsRequired() == 2, "the threshold drops back inside the same 10 s window")
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.Shadowbite, "the next ordinary proc at two targets goes to Shadowbite")
+
+-- The fallback timer also starts from a cast observed on the client.
+c = resetHarness()
+clearBarrageStatus()
+Player.castinginfo = { lastcastid = A.Barrage, timesincecast = 100 }
+E.ObserveLastCast()
+expect(E.BarrageActive(), "an observed Barrage cast should start the fallback timer")
+setReady(A.Shadowbite)
+setReady(A.RefulgentArrow)
+expect(E.TryGCD(shadowbiteContext(2)), "proc consumption should cast")
+expect(lastCastID() == A.RefulgentArrow, "an observed Barrage should block Shadowbite at two targets")
+Player.castinginfo = { lastcastid = 0, timesincecast = 999999 }
+
+----------------------------------------------------------------------------
+-- Pending-request dedupe (0.5.1 review, medium finding).
+----------------------------------------------------------------------------
+
+c = resetHarness()
+expect(CielBardData.Defaults.requestDedupeMs == 350, "the shipped dedupe window should be 350 ms")
+c.requestDedupeMs = 350
+setReady(A.BurstShot)
+setReady(A.HeavyShot)
+expect(E.TryCast(A.BurstShot, target, "first"), "the first request should be sent")
+expect(not E.TryCast(A.BurstShot, target, "duplicate"), "an identical request inside the window is suppressed")
+expect(count(A.BurstShot) == 1, "the duplicate must not reach the client")
+
+-- The hold is tier-wide. Before that it was per-action, so the priority chain
+-- simply fell through to the next candidate and sent a *different*
+-- weaponskill into the same queue window; FFXIV keeps the most recent command,
+-- so a 100-gauge Apex Arrow could be replaced by a 220-potency Burst Shot.
+c = resetHarness()
+c.requestDedupeMs = 350
+setReady(A.ApexArrow)
+setReady(A.BurstShot)
+local apexCtx = directContext()
+apexCtx.soulVoice = 100
+apexCtx.burstActive = true
+expect(E.TryGCD(apexCtx), "the first pulse should cast")
+expect(lastCastID() == A.ApexArrow, "100 gauge in burst should cast Apex Arrow")
+expect(E.PendingGCD(ticks), "the accepted Apex Arrow is still unconfirmed")
+expect(E.TryGCD(apexCtx), "the held pulse still counts as handled")
+expect(count(A.BurstShot) == 0, "no other weaponskill may be sent inside the window")
+expect(count(A.ApexArrow) == 1, "and the Apex Arrow itself is not re-sent")
+expect(E.state.lastDecision == "Waiting for client to confirm last GCD", "the hold should be reported")
+ticks = ticks + 1000
+expect(E.TryGCD(apexCtx), "once the window passes the engine casts again")
+expect(count(A.ApexArrow) == 2, "the re-send after the window is the same action")
+
+-- oGCDs are held on their own tier, so a pending GCD never blocks a weave.
+c = resetHarness()
+c.requestDedupeMs = 350
+setReady(A.BurstShot)
+setReady(A.EmpyrealArrow)
+expect(E.TryCast(A.BurstShot, target, "GCD"), "the weaponskill request should be sent")
+expect(not E.PendingOGCD(ticks), "a pending GCD must not hold the oGCD tier")
+expect(E.TryOGCD(directContext()), "weaving continues while the GCD is unconfirmed")
+expect(count(A.EmpyrealArrow) == 1, "the weave reached the client")
+
+-- The window expires.
+c = resetHarness()
+c.requestDedupeMs = 350
+setReady(A.BurstShot)
+expect(E.TryCast(A.BurstShot, target, "first"), "the first request should be sent")
+ticks = ticks + 1000
+expect(E.TryCast(A.BurstShot, target, "after the window"), "the same action is sent again once the window passes")
+expect(count(A.BurstShot) == 2, "two casts after the window expired")
+
+-- An observed cast lifts the guard immediately.
+c = resetHarness()
+c.requestDedupeMs = 5000
+setReady(A.BurstShot)
+expect(E.TryCast(A.BurstShot, target, "first"), "the first request should be sent")
+expect(not E.TryCast(A.BurstShot, target, "duplicate"), "suppressed while nothing was observed")
+Player.castinginfo = { lastcastid = A.BurstShot, timesincecast = 50 }
+E.ObserveLastCast()
+expect(E.TryCast(A.BurstShot, target, "after the observed cast"), "an observed cast clears the guard")
+expect(count(A.BurstShot) == 2, "the request after the observed cast reached the client")
+Player.castinginfo = { lastcastid = 0, timesincecast = 999999 }
+
+-- The client reporting the action on cooldown also lifts the guard.
+c = resetHarness()
+c.requestDedupeMs = 5000
+setReady(A.BurstShot)
+expect(E.TryCast(A.BurstShot, target, "first"), "the first request should be sent")
+expect(not E.TryCast(A.BurstShot, target, "duplicate"), "suppressed while the client says nothing")
+ActionList:Get(1, A.BurstShot).isoncd = true
+expect(E.TryCast(A.BurstShot, target, "confirmed by cooldown"), "an on-cooldown report clears the guard")
+
+-- Shared charges: isoncd is already true at any partial stack, so the flag by
+-- itself confirms nothing. Execution is read from `cd` rewinding by one recast.
+c = resetHarness()
+c.requestDedupeMs = 5000
+local hb = ActionList:Get(1, A.HeartbreakShot)
+hb.ready = true
+hb.recasttime = 15
+hb.cdmax = 45
+hb.cd = 30
+hb.isoncd = true -- two of three charges: true for essentially the whole fight
+expect(E.TryCast(A.HeartbreakShot, target, "first charge"), "the first charge should be sent")
+expect(not E.TryCast(A.HeartbreakShot, target, "duplicate"), "a partial stack must not defeat the guard")
+expect(count(A.HeartbreakShot) == 1, "only one request reached the client")
+hb.cd = 15 -- the charge was spent: cd rewinds by one recast
+expect(E.TryCast(A.HeartbreakShot, target, "second charge"), "cooldown movement confirms execution")
+expect(count(A.HeartbreakShot) == 2, "the next charge is allowed once cd moves")
+
+-- A rejected request never holds the guard.
+c = resetHarness()
+c.requestDedupeMs = 5000
+local bs = ActionList:Get(1, A.BurstShot)
+bs.ready = true
+bs.Cast = function(self, targetID) return false end
+expect(not E.TryCast(A.BurstShot, target, "rejected"), "a rejected request returns false")
+expect(E.state.pendingActionID == 0, "a rejected request must not leave a pending guard")
+bs.Cast = function(self, targetID)
+    table.insert(castLog, { id = self.id, target = targetID })
+    return true
+end
+
+----------------------------------------------------------------------------
+-- CielBardData.GCD completeness. ObserveLastCast classifies an unlisted id as
+-- a weave, so a missing weaponskill permanently inflates weavesSinceGCD and
+-- E.TryOGCD stops weaving for the rest of the fight. Windbite (the level-sync
+-- Stormbite fallback) was missing exactly this way.
+----------------------------------------------------------------------------
+
+local gcdPathActions = {
+    { "HeavyShot", A.HeavyShot }, { "QuickNock", A.QuickNock },
+    { "Windbite", A.Windbite }, { "VenomousBite", A.VenomousBite },
+    { "Stormbite", A.Stormbite }, { "CausticBite", A.CausticBite },
+    { "IronJaws", A.IronJaws }, { "RefulgentArrow", A.RefulgentArrow },
+    { "Shadowbite", A.Shadowbite }, { "BurstShot", A.BurstShot },
+    { "ApexArrow", A.ApexArrow }, { "Ladonsbite", A.Ladonsbite },
+    { "BlastArrow", A.BlastArrow }, { "ResonantArrow", A.ResonantArrow },
+    { "RadiantEncore", A.RadiantEncore },
+}
+for _, entry in ipairs(gcdPathActions) do
+    expect(entry[2] ~= nil, "CielBardData.Actions is missing " .. entry[1])
+    expect(CielBardData.GCD[entry[2]] == true,
+        entry[1] .. " (" .. tostring(entry[2]) .. ") is cast on a GCD path but missing from CielBardData.GCD")
+end
 
 ----------------------------------------------------------------------------
 -- Burst start DoT gate.
@@ -510,8 +780,22 @@ expect(lastCastID() == A.RagingStrikes, "potion should be skipped under potionMi
 -- Multi-dot.
 ----------------------------------------------------------------------------
 
--- Default on: an engaged secondary target without DoTs receives Stormbite.
+-- Multi-dot is Off by default since 0.5.2 (review High #3): the same
+-- situation falls through to Burst Shot on the primary target.
 c = resetHarness()
+expect(c.multiDot == false, "multi-dot must be off in the shipped defaults")
+entityList = { [300] = makeEnemy(300, "Add A", 80, true) }
+setReady(A.Stormbite)
+setReady(A.BurstShot)
+ctx = directContext()
+E.state.multiDotScanAt = 0
+expect(E.TryGCD(ctx), "filler should cast")
+expect(lastCastID() == A.BurstShot and lastCastTarget() == 200,
+    "the default configuration must not dot secondary targets")
+
+-- Turned on: an engaged secondary target without DoTs receives Stormbite.
+c = resetHarness()
+c.multiDot = true
 entityList = { [300] = makeEnemy(300, "Add A", 80, true) }
 setReady(A.Stormbite)
 setReady(A.BurstShot)
@@ -521,7 +805,7 @@ expect(E.TryGCD(ctx), "multi-dot GCD should cast")
 expect(lastCastID() == A.Stormbite, "multi-dot should apply Stormbite to the secondary target")
 expect(lastCastTarget() == 300, "multi-dot must target the secondary enemy, not the primary")
 
--- Toggle off: the same situation falls through to Burst Shot on the primary.
+-- Toggle off explicitly: still nothing but filler on the primary.
 c = resetHarness()
 c.multiDot = false
 entityList = { [300] = makeEnemy(300, "Add A", 80, true) }
@@ -533,6 +817,7 @@ expect(lastCastID() == A.BurstShot and lastCastTarget() == 200, "multi-dot Off m
 
 -- Idle (not in combat) enemies are never dotted.
 c = resetHarness()
+c.multiDot = true
 entityList = { [301] = makeEnemy(301, "Idle mob", 100, false) }
 setReady(A.Stormbite)
 setReady(A.BurstShot)
@@ -543,6 +828,7 @@ expect(lastCastID() == A.BurstShot, "multi-dot must ignore enemies that are not 
 
 -- Low-HP adds are skipped.
 c = resetHarness()
+c.multiDot = true
 entityList = { [302] = makeEnemy(302, "Dying add", 10, true) }
 setReady(A.Stormbite)
 setReady(A.BurstShot)
@@ -553,6 +839,7 @@ expect(lastCastID() == A.BurstShot, "multi-dot must skip targets below the HP fl
 
 -- Secondary target with both DoTs expiring gets Iron Jaws; a fresh one does not.
 c = resetHarness()
+c.multiDot = true
 local add = makeEnemy(303, "Add B", 90, true)
 add.buffs = {
     { id = CielBardData.Statuses.Stormbite, ownerid = 100, duration = 2 },
@@ -571,6 +858,7 @@ expect(lastCastID() == A.IronJaws and lastCastTarget() == 303, "multi-dot should
 add.buffs[1].duration = 30
 add.buffs[2].duration = 30
 c = resetHarness()
+c.multiDot = true
 entityList = { [303] = add }
 setReady(A.Stormbite)
 setReady(A.BurstShot)
@@ -581,6 +869,7 @@ expect(lastCastID() == A.BurstShot, "healthy secondary DoTs should not consume a
 
 -- Multi-dot is suppressed when the fight is ending.
 c = resetHarness()
+c.multiDot = true
 entityList = { [300] = makeEnemy(300, "Add A", 80, true) }
 setReady(A.Stormbite)
 setReady(A.BurstShot)
@@ -593,6 +882,7 @@ expect(lastCastID() == A.BurstShot, "multi-dot should stop when the kill is near
 
 -- Procs still win over secondary DoTs.
 c = resetHarness()
+c.multiDot = true
 entityList = { [300] = makeEnemy(300, "Add A", 80, true) }
 setReady(A.Stormbite)
 setReady(A.RefulgentArrow)

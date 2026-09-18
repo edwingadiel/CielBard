@@ -19,15 +19,26 @@ icy-veins Bard job changes (7.0+), and the official job guide tooltips.
    Minuet or a buff window is about to expire. Repertoire stacks cap at 3.
 7. **Hawk's Eye** (35% chance, 30 s) is granted by Burst Shot, Stormbite,
    Caustic Bite, Iron Jaws, and Ladonsbite. Barrage grants a guaranteed use.
-   It enables Refulgent Arrow (280) or Shadowbite.
-8. **Barrage** lasts 30 s and turns into Resonant Arrow (600 potency, AoE with
-   55% falloff) for that window.
+   It enables Refulgent Arrow (280) or Shadowbite (200 to the target and every
+   enemy near it, no falloff).
+8. **Barrage** lasts 30 s and turns into Resonant Arrow (640 potency to the
+   first enemy, 50% less to every other one) for that window.
+   **Barrage's own effect is per weaponskill, and it is not always a triple
+   hit.** The job guide gives the triple hit to **Refulgent Arrow only**
+   (280 x 3 = 840). The AoE Hawk's Eye weaponskills get a flat potency
+   increase instead: **Shadowbite 200 -> 300** and its level-sync precursor
+   **Wide Volley 140 -> 220**, each still once per target. Heavy Shot, Burst
+   Shot, Ladonsbite and Quick Nock are not Barrage weaponskills at all.
+   *Consequence for the engine:* at two targets a Barrage-buffed Refulgent
+   Arrow is 840 and a Barrage-buffed Shadowbite is 300 x 2 = 600, so Shadowbite
+   only wins from three targets (900) upward, although a plain Hawk's Eye proc
+   still prefers Shadowbite from two (400 vs 280).
    *Simulator note (not a source claim):* the 30 s is modelled as the
-   `ResonantArrowReady` window. The `Barrage` buff itself is the live 10 s
-   triple-hit window - `statuses.json` gives it `weaponskill_hits: 3`, spent on
-   the next `multi_hit_eligible` weaponskill (Refulgent Arrow 280 -> 840). The
-   triple hit is not recorded above, so it is flagged as an assumption in
-   `sim/README.md` and `sim/output/calibration.md`.
+   `ResonantArrowReady` window and the 10 s buff as the `Barrage` status.
+   `statuses.json` carries `weaponskill_hits: 3`, `actions.json` carries
+   `multi_hit_eligible` (Refulgent Arrow alone) and `barrage_potency`
+   (Shadowbite 300); Wide Volley is absent from `CielBardData.Actions`, so it
+   has no simulator record and its 220 is documented rather than modelled.
 9. **Radiant Finale** turns into Radiant Encore for 30 s. Encore potency by
    coda: the official job guide lists 700 / 800 / 1100 (1 / 2 / 3 codas);
    Icy Veins' 7.0 changelog listed 500-900. Use the job guide values and note
@@ -45,6 +56,33 @@ icy-veins Bard job changes (7.0+), and the official job guide tooltips.
 15. **Burst GCDs** the guide expects inside buffs: Apex Arrow, Blast Arrow, a
     Barrage-buffed Refulgent Arrow, Resonant Arrow, Radiant Encore, Iron Jaws.
     Use these as an invariant check for the 2-minute window in the sim.
+
+## Potency audit (official job guide, Patch 7.5)
+
+Every potency and duration in `sim/data` was re-read against the job guide during
+the v0.5.1 review follow-up. The verified values are:
+
+| action | potency | note |
+|---|---|---|
+| Apex Arrow | 140 at 20 Soul Voice -> 700 at 100 | was 100 -> 600 |
+| Blast Arrow | 700 first enemy, 50% less to the rest | was 600, single target |
+| Resonant Arrow | 640 first enemy, 50% less to the rest | was 600 at 55% falloff |
+| Radiant Encore | 700 / 800 / 1100 by coda, 50% less after the first enemy | potency unchanged |
+| Refulgent Arrow | 280, three times under Barrage (840) | unchanged |
+| Shadowbite | 200 per target, 300 per target under Barrage | was tripled under Barrage |
+| Wide Volley | 140 per target, 220 under Barrage | not in `CielBardData.Actions`, documented only |
+| Ladonsbite | 140 per target | unchanged, and not a Barrage weaponskill |
+| Heavy Shot | 160 | unchanged |
+| Burst Shot | 220 | unchanged, and not a Barrage weaponskill |
+| Stormbite / Caustic Bite | 100 / 150, DoT 25 / 20 per tick, 45 s | unchanged |
+| Iron Jaws | 100 | unchanged |
+| Empyreal Arrow | 260 | unchanged |
+| Sidewinder | 400 | unchanged |
+| Heartbreak Shot | 180, 3 charges of 15 s | unchanged |
+| Rain of Death | 100 per target | unchanged |
+| Pitch Perfect | 100 / 220 / 360 | unchanged |
+| Barrage buff | 10 s | unchanged |
+| Raging Strikes / Battle Voice / Radiant Finale | 20 s | unchanged (item 12) |
 
 ## Research-derived guidance (top-40 parse study, Luna/Sol reports)
 

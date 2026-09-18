@@ -2,7 +2,7 @@
 
 Ciel Bard is an experimental level-100 Bard rotation addon built from the top-40 Vamp Fatale FFLogs analysis. It executes a priority system rather than replaying a fixed sequence.
 
-Version 0.4.0 is a training-dummy MVP. Execution starts disabled and must be explicitly armed in the window. The optimized setup remains the default; advanced customization is hidden behind one opt-in setting.
+Version 0.5.2 is a training-dummy MVP. Execution starts disabled and must be explicitly armed in the window. The optimized setup remains the default; advanced customization is hidden behind one opt-in setting.
 
 ## What it implements
 
@@ -14,7 +14,8 @@ Version 0.4.0 is a training-dummy MVP. Execution starts disabled and must be exp
 - Two-Empyreal-Arrow burst intent without sacrificing obvious total uses.
 - DoT maintenance and optional late-buff Iron Jaws snapshots.
 - Heartbreak Shot → Rain of Death replacement when cleave is profitable, with separate nearby-target thresholds for Ladonsbite, Shadowbite, and Rain of Death.
-- Multi-dotting: Stormbite and Caustic Bite are kept on up to three additional engaged enemies that are healthy enough to pay back the GCD, without changing your current target. One checkbox turns it off.
+- Barrage-aware Shadowbite: Shadowbite replaces Refulgent Arrow at two nearby targets on an ordinary Hawk's Eye proc, but needs three while Barrage is active, because Barrage makes Refulgent strike three times (840 potency) and only raises Shadowbite to 300 per target. Both thresholds are sliders.
+- Multi-dotting: Stormbite and Caustic Bite can be kept on up to three additional engaged enemies that are healthy enough to pay back the GCD, without changing your current target. **Off by default since 0.5.2**: eligibility is still an HP floor rather than a per-target time-to-kill estimate, so on ordinary trash packs it can spend GCDs dotting adds that die first. One checkbox turns it on for durable boss adds.
 - Coda-aware Radiant Finale: never requested at zero codas, and a song that is due within two seconds is allowed to land first when it would add a coda.
 - Configurable DoT gate for the two-minute burst (none, at least one DoT, or both). The default starts Raging Strikes after the first DoT, matching the standard opener.
 - Opt-in Gemdraught of Dexterity use, weaved immediately before Raging Strikes so the 30-second effect covers the whole buff package. HQ is preferred, the newest grade in your bags wins, and a potion on cooldown never delays the burst.
@@ -69,13 +70,15 @@ Run only one of them. Both are designed to simulate low ping without sending act
 - The addon starts Wanderer's, then changes to Mage's and Army's at the configured thresholds, and the **codas** counter in the window rises with each song and returns to zero on Radiant Finale.
 - Radiant Finale fires at one coda in the opener and at three codas in later windows.
 - With **Use Gemdraught of Dexterity** on, the window shows the potion it found and the potion is used in the weave before Raging Strikes.
-- With **Multi-dot nearby enemies** on and a second engaged dummy in range, both DoTs are applied to it while your target stays unchanged.
+- With **Multi-dot nearby enemies** switched on (it is off by default) and a second engaged dummy in range, both DoTs are applied to it while your target stays unchanged.
 - No GCD pauses occur while the target is valid and in range.
 - Refulgent is consumed before Barrage when already available.
 - Disabling an action under **Advanced customization** causes the engine to skip it without pausing the GCD.
-- The preset buttons restore a complete, deterministic configuration before applying their overrides.
+- The preset buttons restore every default (except the master switch, window visibility, the dismissed notice, and your calibrated gauge indexes) before applying their overrides.
 - Apex is not held so long that it overcaps Soul Voice.
 - Rain of Death, Ladonsbite, and Shadowbite each replace their single-target action only when their own nearby-target count is met.
+- With Barrage active, two nearby enemies produce Refulgent Arrow (three hits) and three produce Shadowbite.
+- No action is requested twice in a row while the client still reports it ready: the engine holds an accepted request for 350 ms unless a cast is observed or the action goes on cooldown first.
 - The TTK estimate stabilizes after several seconds of continuous boss damage.
 - **Kill-time policy** changes from `LEARNING` to `TERMINAL`, `IDEAL_FINISH`, `EXTENDED_TAIL`, or `SUSTAIN` only after the configured confidence threshold is reached.
 - The addon stops safely when disabled, out of combat, on another job, without a target, or out of range.
@@ -85,7 +88,7 @@ Run only one of them. Both are designed to simulate low ping without sending act
 - MMOMinion's public documentation does not define the modern Bard gauge array. Gauge indexes are therefore configurable and visibly inspectable.
 - The TTK estimator is deliberately conservative and can be distorted by phase transitions, invulnerability, shields, or add targeting. Use manual TTK when testing encounter-specific endings.
 - Potion use is opt-in. It relies on FFXIVMinion's `GetItem` helper (falling back to a scan of the four inventory bags) and the item's `IsReady`/`Cast` methods; validate on a training dummy that the potion is consumed once and that the weave count stays correct.
-- Multi-dot only considers enemies that MMOMinion reports as in combat. Whether `entity.incombat` and the `incombat` EntityList filter behave as expected in every duty must be confirmed live. Codas are tracked locally from observed song casts rather than read from the gauge.
+- Multi-dot is off by default and only considers enemies that MMOMinion reports as in combat. Whether `entity.incombat` and the `incombat` EntityList filter behave as expected in every duty must be confirmed live. Codas are tracked locally from observed song casts rather than read from the gauge.
 - Utility automation is opt-in. Warden's Paean debuff detection and the defensive HP thresholds require live-client validation before duty use.
 - This version has passed offline Lua parsing and MMOMinion API/reference checks, but has not yet been validated inside a live MMOMinion client. Treat it as a testable MVP, begin on a training dummy, and keep execution disabled until gauge diagnostics and song detection are correct.
 - Third-party automation may violate game rules or account terms. Use at your own risk.
@@ -104,6 +107,7 @@ From the repository root:
 ```bash
 python -m pip install -r tests/requirements.txt
 python tests/run_mock_tests.py
+python tests/run_gui_tests.py
 ```
 
-The suite parses every Lua source file and checks advanced-mode invariants including Apex Off, all songs Off, Iron Jaws Off, no DoTs, Heavy Shot fallback, and GCD-only execution. It also covers per-action AoE thresholds, the burst DoT gate, coda tracking and Radiant Finale holds, potion weaving and its off/cooldown/missing cases, and multi-dot target selection.
+The suite parses every Lua source file and checks advanced-mode invariants including Apex Off, all songs Off, Iron Jaws Off, no DoTs, Heavy Shot fallback, and GCD-only execution. It also covers per-action AoE thresholds, the Barrage-aware Shadowbite/Refulgent decision (including the fallback Barrage timer), pending-request dedupe, the burst DoT gate, coda tracking and Radiant Finale holds, potion weaving and its off/cooldown/missing cases, and multi-dot target selection. `run_gui_tests.py` covers settings persistence, the preset reset, the multi-dot migration, and the ACR stub under reverse load order.

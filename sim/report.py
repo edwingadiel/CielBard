@@ -13,7 +13,7 @@ try:  # pragma: no cover - exercised only while module A has not landed
     from . import ENGINE_VERSION, __version__
 except ImportError:  # the package is still a namespace package
     __version__ = "1.0.0"
-    ENGINE_VERSION = "0.5.1"
+    ENGINE_VERSION = "0.5.2"
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a hard import cycle
     from .batch import BatchSummary
@@ -121,7 +121,8 @@ def format_fight(result: "FightResult") -> str:
         f"ping={_num(config.ping_ms)}ms",
         f"pulse={_num(config.pulse_ms)}ms",
         f"gcd={average_gcd_s(result):.2f}s",
-        f"enemies={config.enemies}",
+        f"enemies={config.enemies}"
+        + (f"@{config.enemy_spread_yalms:g}y" if config.enemies > 1 else ""),
     ])))
     lines.append(labelled("damage", "   ".join([
         f"{result.total_damage:.0f}",
@@ -156,6 +157,7 @@ def format_fight(result: "FightResult") -> str:
         ("repertoire", _num(wasted.get("repertoire_overcap", 0))),
         ("soulvoice", _num(wasted.get("soul_voice_overcap", 0))),
         ("charges", _num(wasted.get("charge_overcap", 0))),
+        ("barrage", _num(wasted.get("barrage_expired", 0))),
     ])))
     counts = {key: value for key, value in result.action_counts.items() if value >= 1}
     lines.append(labelled("counts", format_counts(counts)))

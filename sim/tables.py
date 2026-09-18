@@ -42,6 +42,7 @@ _ACTION_KEYS = frozenset(
         "aoe",
         "falloff",
         "multi_hit_eligible",
+        "barrage_potency",
         "grants",
         "requires",
         "status_gained_id",
@@ -93,6 +94,7 @@ _REQUIRED_JOB_KEYS = (
     "radiant_encore_potency",
     "apex",
     "hawks_eye_proc_chance",
+    "aoe_cluster_radius_yalms",
     "auto_attack_interval_s",
     "gcd_queue_window_s",
 )
@@ -152,6 +154,15 @@ class ActionData:
     notes: str
     multi_hit_eligible: bool = False
     """True when a multi-hit status (Barrage) can multiply this weaponskill's hits."""
+    barrage_potency: int = 0
+    """Potency this weaponskill has instead of `potency` while Barrage is up, 0 for none.
+
+    The official tooltips give the AoE Hawk's Eye weaponskills a flat potency increase
+    under Barrage rather than the triple hit: Shadowbite 200 -> 300 and its level-sync
+    precursor Wide Volley 140 -> 220. An action carrying this is mutually exclusive with
+    `multi_hit_eligible`, and it consumes the Barrage status exactly as a triple hit
+    would.
+    """
 
     @property
     def is_gcd(self) -> bool:
@@ -187,8 +198,9 @@ def apex_potency(gauge: float, job: Mapping[str, Any]) -> int:
     """Apex Arrow potency for a Soul Voice `gauge`, using `job["apex"]`.
 
     Linear between (gauge_min, potency_min) and (gauge_max, potency_max), rounded half up
-    and clamped to [potency_min, potency_max]. Only the 600-at-100 endpoint is documented
-    in the brief; the 100-at-20 floor is the simulator's assumption (see calibration.md).
+    and clamped to [potency_min, potency_max]. Both endpoints are the official job guide's
+    Patch 7.5 values: 140 potency at 20 gauge rising to 700 at 100. The linearity between
+    them is still the simulator's model (see calibration.md).
     """
     apex = job["apex"]
     g_min = float(apex["gauge_min"])
@@ -336,11 +348,22 @@ def _parse_action(key: str, raw: Any) -> ActionData:
     status_gained_id = _integer(record, "status_gained_id", where, 0)
     if status_gained_id < 0:
         raise SimDataError(f"{where}.status_gained_id: {status_gained_id} is negative")
-    # Only the basic weaponskills are multiplied by Barrage; everything else neither
-    # benefits from the status nor consumes it (see statuses.json, weaponskill_hits).
+    # Only Refulgent Arrow is multiplied by Barrage (see statuses.json,
+    # weaponskill_hits); the AoE Hawk's Eye weaponskills take `barrage_potency`
+    # instead, and everything else neither benefits from the status nor consumes it.
     multi_hit_eligible = _boolean(record, "multi_hit_eligible", where, False)
     if multi_hit_eligible and kind != "gcd":
         raise SimDataError(f"{where}.multi_hit_eligible: only a 'gcd' action may be eligible")
+    barrage_potency = _integer(record, "barrage_potency", where, 0)
+    if barrage_potency < 0:
+        raise SimDataError(f"{where}.barrage_potency: {barrage_potency} is negative")
+    if barrage_potency and kind != "gcd":
+        raise SimDataError(f"{where}.barrage_potency: only a 'gcd' action may carry one")
+    if barrage_potency and multi_hit_eligible:
+        raise SimDataError(
+            f"{where}: barrage_potency and multi_hit_eligible are mutually exclusive "
+            f"(Barrage either triples the hit or raises the potency, never both)"
+        )
     return ActionData(
         key=key,
         id=action_id,
@@ -358,6 +381,7 @@ def _parse_action(key: str, raw: Any) -> ActionData:
         status_gained_id=status_gained_id,
         notes=_text(record, "notes", where, ""),
         multi_hit_eligible=multi_hit_eligible,
+        barrage_potency=barrage_potency,
     )
 
 

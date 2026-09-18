@@ -1,6 +1,6 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.5.1"
+CielBardData.Version = "0.5.2"
 CielBardData.BardJobID = 23
 CielBardData.ACRProfileName = "CielBard"
 
@@ -66,7 +66,7 @@ CielBardData.Potions = {
 CielBardData.HQOffset = 1000000
 
 CielBardData.GCD = {
-    [97] = true, [100] = true, [106] = true,
+    [97] = true, [100] = true, [106] = true, [113] = true,
     [3560] = true, [7406] = true, [7407] = true, [7409] = true,
     [16494] = true, [16495] = true, [16496] = true,
     [25783] = true, [25784] = true,
@@ -130,11 +130,23 @@ CielBardData.AbilityDefaults = {
 --   Ladonsbite 140/target vs Burst Shot 220, Shadowbite 200/target vs
 --   Refulgent 280, Rain of Death 100/target vs Heartbreak Shot 180.
 -- They stay separately tunable because radius and positioning differ.
+--
+-- ShadowbiteBarrage is the separate threshold used while Barrage is active
+-- (v0.5.2, review 0.5.1 High #2). Barrage makes Refulgent Arrow strike three
+-- times (280 x 3 = 840) but only raises Shadowbite's potency to 300 per
+-- target, so Shadowbite needs three targets to win under Barrage:
+--   2 targets: Barrage-Shadowbite 600 vs Barrage-Refulgent 840 -> Refulgent.
+--   3 targets: Barrage-Shadowbite 900 vs Barrage-Refulgent 840 -> Shadowbite.
 CielBardData.AoEDefaults = {
     Ladonsbite = 2,
     Shadowbite = 2,
+    ShadowbiteBarrage = 3,
     RainOfDeath = 2,
 }
+
+-- Barrage's buff window. Used as the fallback lifetime of a locally tracked
+-- Barrage when the client does not expose the action's statusgainedid.
+CielBardData.BarrageWindowSeconds = 10
 
 CielBardData.Defaults = {
     enabled = false,
@@ -144,7 +156,12 @@ CielBardData.Defaults = {
     requireCombat = true,
     pulseMs = 30,
     requestThrottleMs = 60,
-    timingVersion = 3,
+    -- Pending-request dedupe (review 0.5.1, medium): an accepted request is
+    -- held for this long so a live client that keeps reporting the action
+    -- ready cannot make the engine send the same cast twice. Cleared early by
+    -- an observed cast or by the client reporting the action on cooldown.
+    requestDedupeMs = 350,
+    timingVersion = 4,
     lockToolNoticeDismissed = false,
     maxWeaves = 2,
     -- GCD is treated as ready this many seconds early so requests queue
@@ -178,7 +195,15 @@ CielBardData.Defaults = {
     -- Multi-dotting: keep both DoTs on additional engaged enemies that will
     -- live long enough to pay back the application GCD. Secondary targets are
     -- cast on directly; the player's current target is left alone.
-    multiDot = true,
+    --
+    -- Default OFF since v0.5.2 (review 0.5.1, High #3): eligibility is still
+    -- an HP-percent floor plus the primary target's TTK, with no per-target
+    -- TTK estimate and no potency-payback calculation, so on ordinary trash
+    -- packs the engine can spend several GCDs dotting adds that die before
+    -- the DoTs repay the AoE potency given up. The toggle stays available and
+    -- is valuable on durable boss adds; it becomes a default again once a
+    -- payoff model (per-target TTK or a multi-target damage model) exists.
+    multiDot = false,
     multiDotMaxTargets = 3,
     multiDotMinHPPercent = 30,
 
@@ -229,7 +254,7 @@ CielBardData.Defaults = {
     repertoireGaugeIndex = 2,
     songTimerGaugeIndex = 3,
 
-    debug = true, -- console timing trace once per second (live-test build)
+    debug = false, -- console timing trace once per second; the trace code stays, only the default changed (review 0.5.1, medium)
 }
 
 -- Presets are deliberately small overrides applied on top of the optimized

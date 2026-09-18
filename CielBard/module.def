@@ -1,6 +1,6 @@
 [Module]
 Name=CielBard
 Dependencies=minionlib,FFXIVMINION
-Version=0.5.1
+Version=0.5.2
 Files=CielBard_Data.lua,CielBard_Rotation.lua,CielBard.lua
 Enabled=1

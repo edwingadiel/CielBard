@@ -9,11 +9,16 @@ value it reports is one the caller wrote into it.
 from __future__ import annotations
 
 import functools
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from lupa import LuaError, LuaRuntime, lua_type
+
+# The only clause of an EntityList filter string with a numeric argument the
+# engine uses: "alive,attackable,maxdistance=30".
+_MAXDISTANCE_RE = re.compile(r"maxdistance\s*=\s*([0-9]+(?:\.[0-9]+)?)")
 
 __all__ = [
     "ActionSpec",
@@ -600,10 +605,10 @@ class FakeClient:
         self._action_list.IsCasting = self._mk_method(self._action_list.is_casting)
 
         self._entities: dict[int, _EntityProxy] = {}
-        self._entities_all = self._lua.table()
-        self._entities_combat = self._lua.table()
-        self._entity_ids_all: list[int] = []
-        self._entity_ids_combat: list[int] = []
+        # One Lua table per distinct EntityList filter string. The engine only
+        # ever uses two, so this stays a two-entry cache in practice.
+        self._entity_views: list[tuple[int, bool, float]] = []
+        self._entity_filters: dict[str, dict[str, Any]] = {}
         self._target: _EntityProxy | None = None
 
         self._items: dict[int, _ItemProxy] = {}
@@ -704,9 +709,12 @@ class FakeClient:
     def _lua_entity_list(self, filter_text: Any = None, *_rest: Any) -> Any:
         try:
             text = filter_text if isinstance(filter_text, str) else ""
-            if "incombat" in text:
-                return self._entities_combat
-            return self._entities_all
+            state = self._entity_filters.get(text)
+            if state is None:
+                state = {"table": self._lua.table(), "ids": []}
+                self._entity_filters[text] = state
+                self._apply_entity_filter(text, state)
+            return state["table"]
         except Exception as exc:  # noqa: BLE001
             self._note_error(exc, "EntityList")
             raise
@@ -813,8 +821,8 @@ class FakeClient:
         self._target = None
         self._player = None
         self._action_list = None
-        self._entities_all = None
-        self._entities_combat = None
+        self._entity_filters.clear()
+        self._entity_views.clear()
         self._gauge_table = None
         self._mk_func = None
         self._mk_method = None
@@ -863,23 +871,39 @@ class FakeClient:
         self._target = self._entity_proxy(view)
 
     def set_entities(self, views: Sequence[EntityView]) -> None:
-        """The EntityList(filter) result. The filter string is ignored except that
-        `incombat` in the filter drops entities with `incombat=False`."""
-        all_ids: list[int] = []
-        combat_ids: list[int] = []
+        """The EntityList(filter) result. Two clauses of the filter string are
+        honoured, because the engine relies on both and never re-checks them
+        itself: `incombat` drops entities with `incombat=False`, and
+        `maxdistance=N` drops entities whose `distance2d` exceeds N. Everything
+        else (`alive`, `attackable`, ...) is ignored, so those remain the
+        caller's responsibility when building the views."""
+        self._entity_views = [
+            (int(view.id), bool(view.incombat), float(view.distance2d)) for view in views
+        ]
         for view in views:
             self._entity_proxy(view)
-            all_ids.append(int(view.id))
-            if view.incombat:
-                combat_ids.append(int(view.id))
-        if all_ids != self._entity_ids_all:
-            self._rebuild_entity_table(self._entities_all, self._entity_ids_all, all_ids)
-            self._entity_ids_all = all_ids
-        if combat_ids != self._entity_ids_combat:
-            self._rebuild_entity_table(
-                self._entities_combat, self._entity_ids_combat, combat_ids
-            )
-            self._entity_ids_combat = combat_ids
+        for text, state in self._entity_filters.items():
+            self._apply_entity_filter(text, state)
+
+    def _filter_entity_ids(self, text: str) -> list[int]:
+        """The ids EntityList(text) should return, in insertion order."""
+        want_combat = "incombat" in text
+        match = _MAXDISTANCE_RE.search(text)
+        limit = float(match.group(1)) if match else None
+        ids: list[int] = []
+        for entity_id, incombat, distance in self._entity_views:
+            if want_combat and not incombat:
+                continue
+            if limit is not None and distance > limit:
+                continue
+            ids.append(entity_id)
+        return ids
+
+    def _apply_entity_filter(self, text: str, state: dict[str, Any]) -> None:
+        ids = self._filter_entity_ids(text)
+        if ids != state["ids"]:
+            self._rebuild_entity_table(state["table"], state["ids"], ids)
+            state["ids"] = ids
 
     def _rebuild_entity_table(self, table: Any, old_ids: Sequence[int], new_ids: Sequence[int]):
         """Key the Lua entity table by entity id, dropping ids that left."""

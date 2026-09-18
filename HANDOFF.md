@@ -4,7 +4,9 @@
 
 CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMinion. It was designed from an event-level analysis of the top 40 Bard parses for Vamp Fatale rather than from a single copied parse. The core conclusion was that high-end Bard play is a state-driven priority problem: procs, gauge, songs, target count, cooldown availability, and expected kill time change the best next action.
 
-The current release is **v0.5.1**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+The current release is **v0.5.2**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+
+v0.5.2 implements the engine half of the external v0.5.1 code review (`REVIEW_0.5.1.md`): Barrage-aware Shadowbite, multi-dot off by default, a lazy ACR stub that survives reverse load order, pending-request dedupe, a complete Optimized-preset reset, and `debug` off. See *Engine changes made from the 0.5.1 code review* below.
 
 v0.4.0 added five behaviors on top of v0.3.0: opt-in potion use, coda-aware Radiant Finale, per-action AoE thresholds, a configurable DoT gate before the two-minute burst, and a multi-dot toggle. Each has regression cases in `tests/run_mock_tests.py`.
 
@@ -25,9 +27,10 @@ Implemented:
 - Opt-in utility rules.
 - Opt-in Gemdraught of Dexterity use weaved before Raging Strikes.
 - Coda tracking and coda-aware Radiant Finale timing.
-- Per-action AoE thresholds for Ladonsbite, Shadowbite, and Rain of Death.
+- Per-action AoE thresholds for Ladonsbite, Shadowbite, and Rain of Death, plus a separate Barrage-only Shadowbite threshold.
 - Configurable DoT gate (NONE / ONE / BOTH) before starting the two-minute burst.
-- Multi-dot maintenance on additional engaged enemies, with a toggle.
+- Multi-dot maintenance on additional engaged enemies, with a toggle (off by default since 0.5.2).
+- Pending-request dedupe so client latency cannot turn one decision into repeated casts.
 - Lua parsing and mocked-runtime invariant tests.
 
 Still required:
@@ -47,7 +50,7 @@ Still required:
 | `CielBard/CielBard_Data.lua` | Action/status IDs, defaults, ability capabilities, and presets. |
 | `CielBard/CielBard_Rotation.lua` | Runtime state, TTK estimator, context builder, priorities, casting, and safeguards. |
 | `CielBard/CielBard.lua` | Initialization, persisted settings, presets, and GUI. |
-| `CielBard/module.def` | MMOMinion module manifest; currently version 0.5.1. |
+| `CielBard/module.def` | MMOMinion module manifest; currently version 0.5.2. |
 | `bard-analysis/` | Sanitized FFLogs collection and analysis scripts. |
 | `bard-analysis/output/merged-report.md` | Best single summary of the research and recommended policy. |
 | `tests/run_mock_tests.py` | Lua parser and mocked-MMOMinion invariant suite. |
@@ -78,7 +81,7 @@ There was no universal top-parse cast string. This is why the module uses priori
 
 ### ACR profile
 
-`CielBard/acr/CielBard.lua` is a drop-in stub for `LuaMods/ACR/CombatRoutines/` that returns `CielBardACRProfile()` from the module (the same pattern the bundled MCR stub uses). The profile's `Cast()` calls `CielBardEngine.Step(true)`, where ACR's Enabled toggle is the master switch and `config.enabled` is ignored. `Draw()` reuses the standalone window; `OnOpen()` maps to ACR's Profile Options. When `ACR.IsActive()` reports the CielBard profile, the standalone `Gameloop.Update` and `Gameloop.Draw` handlers stand down so the engine is never driven twice.
+`CielBard/acr/CielBard.lua` is a drop-in stub for `LuaMods/ACR/CombatRoutines/` that returns `CielBardACRProfile()` from the module (the same pattern the bundled MCR stub uses). Load order is not guaranteed, so when the module has not loaded yet the stub returns a lazy placeholder instead of an inert one: it already advertises `classes = { [23] = true }` and the name `CielBard`, every lifecycle method (`Cast`, `Draw`, `DrawHeader`, `DrawFooter`, `OnOpen`, `OnLoad`, `OnClick`, `OnUpdate`) resolves `CielBardACRProfile` at call time and delegates once it exists, and any other field is read through by `__index`. Delegation tolerates both `profile:Method()` and `profile.Method()` call conventions. `tests/run_gui_tests.py` evaluates the stub in a runtime where `CielBard.lua` has not been loaded and then proves `Cast()` drives the engine after the module loads. The profile's `Cast()` calls `CielBardEngine.Step(true)`, where ACR's Enabled toggle is the master switch and `config.enabled` is ignored. `Draw()` reuses the standalone window; `OnOpen()` maps to ACR's Profile Options. When `ACR.IsActive()` reports the CielBard profile, the standalone `Gameloop.Update` and `Gameloop.Draw` handlers stand down so the engine is never driven twice.
 
 The three registered handlers are:
 
@@ -128,7 +131,7 @@ The current broad order is:
 3. Use Apex Arrow at its context-sensitive gauge threshold unless it should be pooled for an imminent enabled burst.
 4. Snapshot or refresh both DoTs with Iron Jaws when enabled and legal.
 5. If Iron Jaws is disabled or only one DoT is enabled, refresh enabled DoTs individually.
-6. Consume remaining Radiant Encore, Shadowbite (at its own target threshold), and Refulgent Arrow procs.
+6. Consume remaining Radiant Encore, Shadowbite (at its own target threshold, which is higher while Barrage is active), and Refulgent Arrow procs.
 7. Apply or refresh DoTs on a secondary engaged enemy when multi-dot is enabled.
 8. Use Ladonsbite when its target threshold is met.
 9. Use Burst Shot.
@@ -174,7 +177,9 @@ If Iron Jaws is disabled, the engine individually refreshes each enabled DoT. If
 
 #### Multi-dot
 
-`multiDot` (default on; off in the Conservative, No DoTs, and Single target presets) keeps both enabled DoTs on up to `multiDotMaxTargets` additional enemies. Candidates come from `EntityList("alive,attackable,incombat,maxdistance=25")`, must be targetable, in line of sight, and at or above `multiDotMinHPPercent`, and are ranked by current HP so the longest-lived adds are dotted first. Secondary DoTs sit after proc consumption and before Ladonsbite/Burst Shot in the GCD order, are suppressed in the terminal and ideal-finish bands, and are cast directly on the entity so the player's current target never changes. Iron Jaws is used on a secondary target when both DoTs are present and one is expiring.
+`multiDot` (**default off since 0.5.2**; also off in the Conservative, No DoTs, and Single target presets) keeps both enabled DoTs on up to `multiDotMaxTargets` additional enemies. Candidates come from `EntityList("alive,attackable,incombat,maxdistance=25")`, must be targetable, in line of sight, and at or above `multiDotMinHPPercent`, and are ranked by current HP so the longest-lived adds are dotted first. Secondary DoTs sit after proc consumption and before Ladonsbite/Burst Shot in the GCD order, are suppressed in the terminal and ideal-finish bands, and are cast directly on the entity so the player's current target never changes. Iron Jaws is used on a secondary target when both DoTs are present and one is expiring.
+
+The default became off in 0.5.2 on the 0.5.1 review's High #3 finding: eligibility is the primary target's TTK plus an HP-percent floor, with no per-target TTK estimate and no potency-payback calculation, so on an ordinary three-to-five-target pack the engine can spend several GCDs applying DoTs to adds that die before the DoTs repay the AoE potency given up. The feature stays available for durable boss adds. `TIMING_VERSION` was bumped to 4 and `migrateTiming` clears a saved `multiDot = true` once, so existing installs pick the new default up but a user who switches it back on keeps it. It becomes a default again once one of these exists: per-target TTK estimates, an exactly-two-target policy, encounter/add whitelisting, a potency-payback calculation, or a multi-target simulator damage model.
 
 #### Burst DoT gate
 
@@ -205,7 +210,18 @@ Codas are tracked locally in `state.codas` from every observed or requested song
 
 ### AoE
 
-`useAOE` is the master switch; `aoeTargets` holds a per-action nearby-target threshold for `Ladonsbite`, `Shadowbite`, and `RainOfDeath` (all default 2). Enemies are counted within five yalms of the current target. With current potencies (Ladonsbite 140 per target vs Burst Shot 220, Shadowbite 200 vs Refulgent 280, Rain of Death 100 vs Heartbreak Shot 180) every replacement is a gain at two targets, but the thresholds stay separate because Shadowbite and Rain of Death use a five-yalm circle while Ladonsbite is a cone. `E.AoEAllowed(key, ctx)` is the single gate for these actions.
+`useAOE` is the master switch; `aoeTargets` holds a per-action nearby-target threshold for `Ladonsbite`, `Shadowbite`, and `RainOfDeath` (all default 2) plus `ShadowbiteBarrage` (default 3). Enemies are counted within five yalms of the current target. With current potencies (Ladonsbite 140 per target vs Burst Shot 220, Shadowbite 200 vs Refulgent 280, Rain of Death 100 vs Heartbreak Shot 180) every replacement is a gain at two targets, but the thresholds stay separate because Shadowbite and Rain of Death use a five-yalm circle while Ladonsbite is a cone. `E.AoEAllowed(key, ctx)` is the single gate for these actions.
+
+#### Barrage-aware Shadowbite
+
+Shadowbite and Refulgent Arrow consume the same Hawk's Eye proc, and Barrage changes which one wins. Barrage makes the next Refulgent Arrow strike three times (280 x 3 = 840) but only raises Shadowbite's potency to 300 per target (it is **not** a triple hit). So:
+
+| Targets | Ordinary proc | Barrage proc |
+|---|---|---|
+| 2 | Shadowbite 400 vs Refulgent 280 -> **Shadowbite** | Shadowbite 600 vs Refulgent 840 -> **Refulgent** |
+| 3 | Shadowbite 600 -> **Shadowbite** | Shadowbite 900 vs Refulgent 840 -> **Shadowbite** |
+
+`E.ShadowbiteAllowed(ctx)` therefore replaces `E.AoEAllowed("Shadowbite", ctx)` in the GCD order, and `E.ShadowbiteTargetsRequired()` returns `aoeTargets.ShadowbiteBarrage` while Barrage is active and `aoeTargets.Shadowbite` otherwise. `E.BarrageActive()` prefers the live status (`buffRemaining(Player, actionStatusID(A.Barrage), Player.id) > 0`, the same helpers song detection uses); builds that do not expose `statusgainedid` fall back to a local timer started by an accepted `E.TryCast(A.Barrage, ...)` or by `E.ObserveLastCast` seeing a Barrage cast, with the window taken from `CielBardData.BarrageWindowSeconds` (10).
 
 Target counting and encounter-specific target selection require live validation.
 
@@ -349,11 +365,13 @@ python tests/run_gui_tests.py
 - No-DoT configurations continue direct damage.
 - Heavy Shot remains the final level-sync fallback.
 - GCD-only mode cannot emit an oGCD while the GCD is locked.
-- Ladonsbite, Shadowbite, and Rain of Death each honor their own target threshold.
+- Ladonsbite, Shadowbite, and Rain of Death each honor their own target threshold, and Shadowbite honors the higher Barrage threshold from either the live status or the fallback timer.
+- An accepted request is not re-sent for `requestDedupeMs` unless a new cast is observed or the client reports the action on cooldown; a rejected request clears the guard at once.
 - The burst DoT gate behaves correctly in NONE, ONE, and BOTH modes.
 - Codas accumulate from observed songs and clear on Radiant Finale; Finale is never requested at zero codas, fires at one coda, holds for an imminent coda-adding song, and ignores the hold in the terminal band.
 - The potion is weaved before Raging Strikes with HQ preferred, counts as a weave, and is skipped when off, on cooldown, missing (with a warning), or under the TTK floor.
-- Multi-dot applies Stormbite to an engaged secondary target, uses Iron Jaws when both DoTs are expiring there, and skips idle, low-HP, or already-dotted targets, kill-near bands, and the Off toggle; procs still win.
+- Multi-dot is off in the shipped defaults; when switched on it applies Stormbite to an engaged secondary target, uses Iron Jaws when both DoTs are expiring there, and skips idle, low-HP, or already-dotted targets, kill-near bands, and the Off toggle; procs still win.
+- `tests/run_gui_tests.py` additionally covers the Optimized-preset full reset, the `multiDot` migration running exactly once, and the ACR stub under reverse load order.
 
 Add a regression case whenever a new toggle, dependency, or fallback branch is introduced.
 
@@ -381,7 +399,7 @@ Song tracking contains a local 45-second timer fallback if status detection is u
 
 ### Immediate: live-client stabilization
 
-1. Load v0.3 on a training dummy with debug logging.
+1. Load the current build on a training dummy with `debug` switched on (it ships off since 0.5.2).
 2. Record the actual Bard gauge layout.
 3. Confirm song status IDs and local-timer fallback behavior.
 4. Measure action-request timing, animation lock, and weave counting.
@@ -466,7 +484,48 @@ Applied from `sim/output/FINDINGS.md`, verified with a 200-seed 510 s A/B on ide
 3. `apexOffcycleGauge` 90 -> 80 (300 paired seeds: +0.25%, p = 0.0003; 100 was worst). `apexHoldForBurstSeconds` measured 0 effect and is left as is.
 4. Iron Jaws urgency pre-empt ahead of the proc consumers, `dotUrgentSeconds = 1.5`, so Blast/Resonant/Encore/Apex chains cannot let both DoTs fall off.
 
-Not changed on purpose: `maxWeaves`, `weaveMinGcdRemaining`, `dotRefreshSeconds`, Pitch Perfect rules (see FINDINGS.md section 3). `chargePoolSeconds` should be re-swept now that `nextBurstSeconds` is no longer skewed. The sim's engine hash pins in `tests/test_integration.py` were re-baselined for 0.5.1.
+Not changed on purpose: `maxWeaves`, `weaveMinGcdRemaining`, `dotRefreshSeconds`, Pitch Perfect rules (see FINDINGS.md section 3). The sim's engine hash pins in `tests/test_integration.py` were re-baselined for 0.5.1. `chargePoolSeconds` has since been re-swept on 0.5.2 now that `nextBurstSeconds` is no longer skewed - **25 stays** (FINDINGS.md 4.3).
+
+## Engine changes made from the 0.5.1 code review (0.5.2)
+
+`REVIEW_0.5.1.md` is the verified external review this release implements. The engine-side items:
+
+1. **Barrage-aware Shadowbite (High #2).** `E.BarrageActive()`, `E.ShadowbiteTargetsRequired()`, and `E.ShadowbiteAllowed(ctx)` were added, and the GCD order now gates Shadowbite through the last of these. New setting `aoeTargets.ShadowbiteBarrage` (default 3) sits next to the Shadowbite slider in the window. See *Barrage-aware Shadowbite* above for the potency arithmetic and the detection fallback.
+2. **`multiDot` default false (High #3)**, with a one-time migration at `TIMING_VERSION = 4`. The toggle and every preset are unchanged.
+3. **ACR stub resilience (High #4).** `CielBard/acr/CielBard.lua` returns a lazy placeholder instead of an inert one; see the ACR section above.
+4. **Pending-request dedupe (medium).** `E.TryCast` records the accepted action id, target, and tick, and suppresses an identical request for `requestDedupeMs` (default 350). The guard is cleared by `E.ObserveLastCast` seeing any new cast, by the client reporting the action `isoncd`, by the window expiring, and immediately by an explicit rejection from `Cast()`. This is the live-latency race the simulator cannot reproduce, because it flips readiness the instant a request is accepted.
+5. **Optimized preset is a complete reset (medium).** `applyPreset` now restores every key in `CielBardData.Defaults` except the documented preserve list in `CielBard.PresetPreserved` (`enabled`, `showWindow`, `lockToolNoticeDismissed`, `timingVersion`, the three gauge indexes, and `advancedEnabled`), then merges the preset's own overrides on top.
+6. **`debug` default false (medium).** The trace code itself is unchanged; only the default moved.
+
+Item 1 of the review (simulator potencies) and the recalibration/sweep work belong to `sim/` and are not part of this change. Because the shipped Lua changed, the engine hash pins in `tests/test_integration.py` need re-baselining for 0.5.2.
+
+The module table is now also exposed as the global `CielBardUI` (`CielBardUI.config`, `CielBardUI.ApplyPreset`, `CielBardUI.PresetPreserved`, `CielBardUI.drivenByACR`) so the offline harnesses can drive presets without reaching into a chunk-local table.
+
+## Review response: REVIEW_0.5.1.md item by item
+
+Every item in the verified external review, and what was done about it. "Engine" items are
+0.5.2 changes under `CielBard/`; "simulator" items are 0.5.2 changes under `sim/`. Nothing
+under `CielBard/` was modified by the simulator pass.
+
+| review item | severity | what was done |
+|---|---|---|
+| **1. Simulator action potencies are outdated** | High | **Done (simulator).** `sim/data/job.json` and `actions.json` now carry the current job-guide values: Apex Arrow 140 at 20 gauge to 700 at 100, Blast Arrow 700 with 50% falloff, Resonant Arrow 640 with 50% falloff, Refulgent Arrow 280 / 840 under Barrage, Shadowbite 200 / 300 under Barrage, Ladonsbite 140, Radiant Encore 700 / 800 / 1100, Heavy Shot 160. Wide Volley (140 / 220) is absent from `CielBardData.Actions` and so has no record. Every data table was re-checked, not just the four the review named. Calibration re-fitted (`potency_to_damage` 132.40 -> **128.56**), the Apex sweep re-run at 300 paired seeds, and `sim/output/calibration.md`, `sweep_apex.md` and `FINDINGS.md` regenerated. |
+| **2. Barrage plus Shadowbite is wrong at two targets** | High | **Done (engine + simulator).** `E.BarrageActive()`, `E.ShadowbiteTargetsRequired()` and `E.ShadowbiteAllowed(ctx)` added, with a new `aoeTargets.ShadowbiteBarrage` defaulting to 3 and a 10 s `CielBardData.BarrageWindowSeconds` fallback when the client does not expose the status. The simulator gained a multi-target damage model, and the fix is now **measured**, not argued: at two targets the engine fires Refulgent Arrow 2.85 times per fight (of 3.00 Barrages, 0.15 expired) and at three targets 0.00, with Shadowbite rising by exactly 2.84. Regression cases for all three scenarios are in the mocked-runtime suite. |
+| **3. Multi-dotting should not be an optimized default** | High | **Done (engine).** `multiDot = false` in `CielBardData.Defaults` and in every preset, with a one-time migration at `TIMING_VERSION = 4`. The toggle itself is unchanged. The simulator **cannot yet retire this**: its multi-target model gives every enemy the primary's HP and no death time, so the payback calculation the review asks for has nothing to run on. `multiDot = false` should stay until per-target TTK exists on both sides. |
+| **4. ACR stub does not recover from reverse load order** | High | **Done (engine).** `CielBard/acr/CielBard.lua` returns a lazy placeholder whose lifecycle methods delegate to `CielBardACRProfile` once it appears, instead of an inert one. Covered by a GUI/ACR test that evaluates the stub before `CielBard.lua` (`ACR stub reverse load order ok`). |
+| Pending request deduplication | Medium | **Done (engine).** `E.TryCast` records the accepted action id, target and tick and suppresses an identical request for `requestDedupeMs` (default 350). Cleared by an observed cast, by the client reporting the action `isoncd`, by the window expiring, or immediately by an explicit rejection. **The simulator cannot exercise this** - it flips readiness the instant a request is accepted - so it has a mocked-runtime test instead. |
+| Optimized preset is not a complete reset | Medium | **Done (engine).** `applyPreset` now restores every key in `CielBardData.Defaults` except the documented `CielBard.PresetPreserved` list, then merges the preset's own overrides. |
+| Debug logging defaults to enabled | Medium | **Done (engine).** `debug = false`. The trace code is unchanged. |
+| Generated reports and documentation are inconsistent | Medium | **Done.** `sim/output/FINDINGS.md` no longer claims its proposed engine changes are unmade - it records that the 0.5.1 changes shipped and adds the 0.5.2 re-run. `sim/README.md` gained a "Repository output policy" section and `.gitignore` now excludes per-seed and intermediate JSON. **Known remaining drift:** `sim/README.md` still says `calibration.md` has to be re-run before its numbers are quoted, and that `FINDINGS.md` and `sweep_apex.md` predate the Patch 7.5 corrections. All three have now been re-run and their staleness banners removed; that paragraph needs a one-line correction. `empyreal_report.md` and `pp_ironjaws_report.md` **do** still carry their banners correctly - their diagnoses stand and their fixes shipped, but their DPS numbers were taken on the old curve and have not been re-measured. |
+| Recalibrate and re-run the sweeps | (fix order 6) | **Done.** Calibration re-run at 150 seeds per duration anchor; the Apex grid re-run at 300 paired seeds per point; `chargePoolSeconds` re-swept at 300 paired seeds now that `nextBurstSeconds()` is unskewed. Results and the recommended-defaults table are in `sim/output/FINDINGS.md` section 4. |
+| Add two-, three- and five-target scenarios | (fix order 7) | **Partly done.** 1, 2 and 3-target 300 s batches at 300 seeds each are in `sim/output/multitarget.csv`; five targets has not been run. |
+
+**The one setting change this pass recommends and did not make:** `apexHoldForBurstSeconds`
+35 -> 0. It measures +0.128% at gauge 80 over 300 paired seeds, p = 0.0524 - positive at
+every gauge where the hold can act, never negative in any run, and 0 is the simpler default,
+but not a significant result. `apexOffcycleGauge = 80` is confirmed under the corrected
+curve (+0.237% over 90, p = 0.000079) and `chargePoolSeconds = 25` is confirmed best of
+{0, 15, 25, 35}. See `sim/output/FINDINGS.md` 4.5.
 
 ## Simulator
 
@@ -490,8 +549,10 @@ actions, `IsReady` false for self-targeted actions against an enemy id, gauge in
 | `sim/MECHANICS_CORRECTIONS.md` | job-guide and Balance corrections that override SPEC where they disagree, and the parse-study-derived hypotheses |
 | `sim/data/*.json` | every potency, duration, recast, proc rate and status id. No mechanic constant lives in code |
 | `sim/output/calibration.md` | the calibration report (generated head, hand-written analysis below the `# Analysis` marker) |
-| **`sim/output/FINDINGS.md`** | **start here.** The decision-oriented digest for this repository's maintainer: what the mechanics corrections changed, the Apex verdict, the Empyreal / Pitch Perfect / Iron Jaws diagnoses, the recommended engine changes ranked by expected DPS gain with a confidence column, and the assumptions still unverified |
-| `sim/output/sweep_apex.md` | `MECHANICS_CORRECTIONS.md` item 16 settled: the 9 x 60 grid plus the 300-paired-seed confirmation, with `sweep_apex.csv` / `.json` / `_confirm*.json` beside it |
+| **`sim/output/FINDINGS.md`** | **start here.** The decision-oriented digest for this repository's maintainer, re-run for 0.5.2: what the corrections changed, the status of every recommended engine change (all shipped), the re-run Apex / charge-pool / multi-target results, the recommended defaults table, and the assumptions still unverified |
+| `sim/output/sweep_apex.md` | the Apex verdict, re-run on the Patch 7.5 curve: `apexOffcycleGauge` {80, 90, 100} x `apexHoldForBurstSeconds` {0, 35} at 300 paired seeds per point, with `sweep_apex.csv` beside it |
+| `sim/output/sweep_chargepool.csv` | `chargePoolSeconds` {0, 15, 25, 35} at 300 paired seeds, re-run after the `nextBurstSeconds()` fix |
+| `sim/output/multitarget.csv` | the 1 / 2 / 3-target 300 s batches at 300 seeds each: the Barrage-aware Shadowbite threshold measured in casts |
 | `sim/output/empyreal_report.md` | per-pulse attribution of every wasted Empyreal second, the root cause on `CielBard_Rotation.lua:958`, the isolation proof, and the engine change written out (`empyreal_reasons.csv`, `empyreal_paired.csv`) |
 | `sim/output/pp_ironjaws_report.md` | the Pitch Perfect stack budget (balances - not a defect) and the Iron Jaws DoT fall-off defect, with `diag_pp_ij.py`, `sweep_dots.csv`, `sweep_dots_nokill.csv`, `sweep_terminaldump400.csv` |
 | `tests/test_*.py`, `tests/run_sim_tests.py` | unit and integration suites, plain `unittest`, no pytest |
@@ -525,41 +586,58 @@ when comparing against kill parses; leave it off for sustained dummy DPS. Read `
 output with its `dps_sem` column beside `delta` - at 510 s, neighbouring points routinely
 differ by less than the batch standard error.
 
-### Calibration result
+### Calibration result (engine 0.5.2, Patch 7.5 potencies)
 
-Fitted `potency_to_damage = 132.40` (from an uncalibrated 100.0) over seeds 1-150, residual
-mean absolute error 0.99%, max 2.73% across the 40 parses; the kill-time bands were re-run
-at 120 seeds each. On that scale the shipped engine simulates **1.33% below the top-10 mean
-aDPS of 34,633**. The mechanics corrections (Barrage's triple hit) moved the scalar from
-136.80 to 132.40, i.e. +3.3% simulated potency, and moved no per-action rate by as much as
-1% - they changed what a cast is worth, not what the engine casts.
+**Re-run after the potency corrections and the 0.5.1/0.5.2 engine changes.** Fitted
+`potency_to_damage = 128.5594` (from an uncalibrated 100.0) over seeds 1-150 across the
+five duration anchors, residual mean absolute error 0.98%, max 2.85% across the 40 parses.
+The scalar is fitted as `sum(aDPS) / sum(sim DPS)`, so it moves inversely with potency:
+132.40 -> 128.56 is the +3.0% of simulated potency the corrected Apex / Blast / Resonant
+values added. On that scale the engine at its shipped defaults simulates **1.37% below the
+top-10 mean aDPS of 34,633** (34,158.9 +- 34.0 at 510 s, 300 seeds, no kill window).
 
-**Two engine changes are now measured well enough to make, and they are most of the gap.**
-Both are described and not made; nothing under `CielBard/` has been modified.
+**The rotation-shape agreement improved sharply**, which is the part a scalar cannot fake.
+Casts per minute at the 520 s anchor against the merged report's top-10 means:
 
-1. **The pre-burst Empyreal Arrow hold, +0.67% to +0.75% (3.5-3.7 sigma).**
-   `CielBard_Rotation.lua:958` holds Empyreal for a nominal 5 s before a burst, but
-   `nextBurstSeconds()` returns 0 as soon as the *first* burst action is ready, so Radiant
-   Finale's 110 s recast makes the hold ~15 s - exactly one Empyreal recast, lost once per
-   two-minute window (30.0 casts per fight against the parses' 34.0). The fix is two parts:
-   make `nextBurstSeconds()` take the maximum remaining cooldown over the enabled burst
-   actions, and give the hold its own key `empyrealHoldForBurstSeconds` defaulting to 0.
-   The first part also un-skews `chargePoolSeconds` and `apexHoldForBurstSeconds`, which are
-   silently running ~7.5 s early.
-2. **`apexOffcycleGauge` 90 -> 80, +0.25% (p = 0.0003 over 300 paired seeds).** The gauge
-   carries the whole effect; `apexHoldForBurstSeconds` is worth nothing measurable at any
-   value and gauge 100 is the worst of the three.
+| action /min | 0.5.0, old potencies | 0.5.2, corrected | top-10 |
+|---|---:|---:|---:|
+| Empyreal Arrow | 3.462 (-12.1%) | **3.923 (-0.3%)** | 3.937 |
+| Iron Jaws | 1.232 (-5.8%) | **1.343 (+2.7%)** | 1.308 |
+| charge spenders (combined) | 7.292 (-1.3%) | **7.427 (+0.6%)** | 7.384 |
+| Pitch Perfect | 2.678 (-4.8%) | 2.655 (-5.6%) | 2.814 |
+| Apex Arrow | 0.959 (-1.4%) | 1.065 (+9.5%) | 0.973 |
+| all casts | 43.071 (-4.9%) | 43.623 (-3.6%) | 45.270 |
 
-A third change, an Iron Jaws urgency pre-empt (`dotUrgentSeconds = 1.5`), is worth about
-+0.16% - below what 150 seeds resolve, so it is a correctness fix to be verified on cast
-counts. Pitch Perfect needs no change: its stack budget balances and the count gap is an
-artefact of `sim.calibrate` not setting `kill_time_s`.
+The two changes 0.5.1 made for this reason landed: the Empyreal count gap is gone and Iron
+Jaws now slightly overshoots rather than undershooting. The Pitch Perfect gap is the known
+`sim.calibrate` artefact (it sets no `kill_time_s`, so the terminal one-stack dump never
+fires). The **Apex overshoot is new and is the one number to watch**: `apexOffcycleGauge`
+is now 80, which fires more and smaller Apex Arrows than the parses show. See the cast-rate
+discussion in `sim/output/sweep_apex.md`.
+
+**The 0.5.2 sweeps, and the defaults they recommend** (nothing under `CielBard/` was
+modified by the simulator pass; these are reported, not applied):
+
+1. **`apexOffcycleGauge = 80` is confirmed under the 140-700 curve.** 80 beats 90 by
+   **+0.237%** at hold 0 (300 paired seeds, t(299) = +4.00, p = 0.000079, 95% CI +0.121%
+   to +0.354%) and by +0.132% at hold 35 (p = 0.029). Gauge 100 moved off the bottom -
+   it is now second, indistinguishable from 80 (p = 0.156) and ahead of 90 (p = 0.048).
+2. **`apexHoldForBurstSeconds` 35 -> 0 is recommended but not proven.** +0.128% at gauge
+   80, p = 0.0524, CI -0.001% to +0.257%. Positive in sign at every gauge where the hold
+   can act, never measured negative, and 0 is the simpler default - but 300 seeds do not
+   resolve it and it should not be quoted as significant.
+3. **`chargePoolSeconds = 25` stays.** Re-swept over {0, 15, 25, 35} now that
+   `nextBurstSeconds()` is no longer skewed: 25 wins, 0 loses -0.173% (p = 0.034), 15 loses
+   -0.143% (p = 0.020), 35 loses -0.079% (p = 0.373, inside noise). The 0.5.0 collapse at
+   35 is gone - it cost 5.6 Heartbreak casts then and costs 1.0 now, which is the skew fix
+   showing up exactly where it was predicted to.
 
 Read `sim/output/FINDINGS.md` first - it is the ranked decision list with confidences and
-the remaining unverified assumptions. `sim/output/calibration.md` has the full
-per-action disagreement analysis and the parameters still worth sweeping;
-`sim/output/sweep_apex.md`, `empyreal_report.md` and `pp_ironjaws_report.md` are the
-underlying investigations.
+the remaining unverified assumptions. `sim/output/calibration.md` has the full per-action
+disagreement analysis; `sim/output/sweep_apex.md` is the Apex investigation, re-run for
+0.5.2. `empyreal_report.md` and `pp_ironjaws_report.md` still carry their 0.5.0 staleness
+banners: their diagnoses stand and their fixes shipped, but their DPS numbers were measured
+on the old potency curve and have not been re-taken.
 
 ### Known limitations
 
@@ -579,9 +657,15 @@ underlying investigations.
   (`stats.auto_attack_dps` ships at 0.0, worth 7-10% of real aDPS). Auto attacks in
   particular are absorbed as a multiple of potency rather than of time, which biases any
   experiment that moves GCD count without moving potency: ping, downtime windows, GCD_ONLY.
-- **Single target only.** Rain of Death, Ladonsbite and Shadowbite have no multi-target
-  damage model, so every shared charge is converted into Heartbreak Shot and the cleave
-  optimisation the merged report identifies cannot be tested.
+- **Multi-target is modelled but idealised.** Ladonsbite, Shadowbite and Rain of Death hit
+  every clustered target with no falloff, and Blast Arrow, Resonant Arrow and Radiant
+  Encore take the 50% falloff after the first, so *replacement thresholds* can now be
+  measured - `sim/output/multitarget.csv` is the 1 / 2 / 3-target evidence for the
+  Barrage-aware Shadowbite rule. What the model does **not** have is a per-target
+  time-to-kill: every extra enemy has the primary's HP, stands inside the 5 yalm cluster
+  radius, and never dies. That is why `multiDot` cannot be evaluated here and stays off by
+  default, and why the multi-target DPS figures are a clustered-pack ceiling rather than a
+  trash pull.
 - **Utility casts are not modelled** (Warden's Paean, Troubadour, Nature's Minne, Repelling
   Shot), which is most of the residual 0.65 casts/min gap against the parses.
 - Several mechanics are simulator assumptions rather than verified facts - the Army's Muse

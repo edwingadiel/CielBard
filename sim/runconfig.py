@@ -54,7 +54,16 @@ class FightConfig:
     pulse_ms: int = 30                    # also written into the engine config
     engine_config: Mapping[str, Any] = field(default_factory=dict)
     downtime: Tuple[DowntimeWindow, ...] = ()
+    # The number of striking dummies. Dummy 1 is the engine's target; the rest are
+    # identical clones placed `enemy_spread_yalms` from it, which is what makes the
+    # AoE replacements (Ladonsbite, Shadowbite, Rain of Death) worth casting.
     enemies: int = 1
+    # The radius, in yalms, of the ring the clones stand on around the primary target.
+    # `CielBard_Rotation.lua`'s `CountEnemiesNear` only counts an entity whose `pos` is
+    # within 5 yalms of the target's, which is Shadowbite's radius, so the default puts
+    # every clone comfortably inside it. Raise it above 5 to build a scattered pack the
+    # engine must decline to treat as an AoE target group.
+    enemy_spread_yalms: float = 2.0
     stat_overrides: Mapping[str, float] = field(default_factory=dict)
     job_overrides: Mapping[str, Any] = field(default_factory=dict)
     use_potion: bool = False
@@ -73,7 +82,7 @@ class FightConfig:
     def validate(self) -> None:
         """Raises SimConfigError for: seconds <= 0, pulse_ms <= 0 or > 1000,
         ping_ms < 0, overlapping downtime windows, downtime beyond `seconds`,
-        enemies < 1."""
+        enemies < 1, enemy_spread_yalms < 0."""
         if self.seconds <= 0:
             raise SimConfigError(f"seconds must be > 0, got {self.seconds}")
         if self.pulse_ms <= 0 or self.pulse_ms > 1000:
@@ -82,6 +91,10 @@ class FightConfig:
             raise SimConfigError(f"ping_ms must be >= 0, got {self.ping_ms}")
         if self.enemies < 1:
             raise SimConfigError(f"enemies must be >= 1, got {self.enemies}")
+        if self.enemy_spread_yalms < 0:
+            raise SimConfigError(
+                f"enemy_spread_yalms must be >= 0, got {self.enemy_spread_yalms}"
+            )
         if self.kill_time_s is not None and self.kill_time_s <= 0:
             raise SimConfigError(f"kill_time_s must be > 0 or None, got {self.kill_time_s}")
         windows = sorted(self.downtime, key=lambda w: (w.start_s, w.end_s))
@@ -137,6 +150,7 @@ class FightConfig:
             "engine_config": {str(k): self.engine_config[k] for k in sorted(self.engine_config)},
             "downtime": [[float(w.start_s), float(w.end_s)] for w in self.downtime],
             "enemies": int(self.enemies),
+            "enemy_spread_yalms": float(self.enemy_spread_yalms),
             "stat_overrides": {
                 str(k): float(self.stat_overrides[k]) for k in sorted(self.stat_overrides)
             },

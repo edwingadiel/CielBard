@@ -23,11 +23,12 @@
   "apex": {
     "gauge_min": 20,
     "gauge_max": 100,
-    "potency_min": 100,
-    "potency_max": 600,
+    "potency_min": 140,
+    "potency_max": 700,
     "blast_gauge_threshold": 80
   },
   "hawks_eye_proc_chance": 0.35,
+  "aoe_cluster_radius_yalms": 5.0,
   "auto_attack_interval_s": 3.04,
   "gcd_queue_window_s": 0.5
 }

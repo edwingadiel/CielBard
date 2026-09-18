@@ -1143,13 +1143,13 @@ class RepertoireTests(unittest.TestCase):
         assert simulation.wasted_procs["soul_voice_overcap"] > 0
 
         job = simulation.job
-        assert apex_potency(20, job) == 100
-        assert apex_potency(60, job) == 350
-        assert apex_potency(80, job) == 475
-        assert apex_potency(100, job) == 600
+        assert apex_potency(20, job) == 140
+        assert apex_potency(60, job) == 420
+        assert apex_potency(80, job) == 560
+        assert apex_potency(100, job) == 700
         data = SHARED_TABLES.action("ApexArrow")
         simulation.soul_voice = 80
-        assert simulation._potency_for("ApexArrow", data) == 475
+        assert simulation._potency_for("ApexArrow", data) == 560
 
     def test_codas_and_radiant_finale(self) -> None:
         simulation = _sim()

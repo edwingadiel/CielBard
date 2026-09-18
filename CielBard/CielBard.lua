@@ -119,11 +119,14 @@ end
 
 -- Timing migration ---------------------------------------------------------------
 
-local TIMING_VERSION = 3
+local TIMING_VERSION = 4
 
 -- One-time migrations for defaults that changed after users had saved them.
 -- v2: pulse/throttle tightened in 0.4.1. v3: requireLOS became opt-in in 0.5.0
--- because live clients report los=false on dummies in plain view.
+-- because live clients report los=false on dummies in plain view. v4: the
+-- 0.5.1 review (High #3) found multi-dotting too aggressive to ship on by
+-- default, so a saved multiDot=true from an earlier version is turned off
+-- once; the toggle and the presets still work normally afterwards.
 local function migrateTiming(config)
     local version = tonumber(config.timingVersion) or 1
     if version >= TIMING_VERSION then return end
@@ -133,6 +136,9 @@ local function migrateTiming(config)
     end
     if version < 3 then
         config.requireLOS = CielBardData.Defaults.requireLOS
+    end
+    if version < 4 then
+        config.multiDot = CielBardData.Defaults.multiDot
     end
     config.timingVersion = TIMING_VERSION
     markDirty()
@@ -273,24 +279,37 @@ local function abilityCheckbox(label, key)
     end
 end
 
+-- Settings a preset must never touch. Everything else in
+-- CielBardData.Defaults is restored before the preset's overrides are merged,
+-- so "Optimized" really is a complete reset (0.5.1 review, medium finding):
+--   enabled                 the master execution switch
+--   showWindow              window visibility
+--   lockToolNoticeDismissed a one-time notice the user already dismissed
+--   timingVersion           migration bookkeeping, never user-facing
+--   *GaugeIndex             per-client gauge layout the user calibrated
+--   advancedEnabled         the switch that exposes presets in the first place
+local PRESET_PRESERVED = {
+    enabled = true,
+    showWindow = true,
+    lockToolNoticeDismissed = true,
+    timingVersion = true,
+    soulVoiceGaugeIndex = true,
+    repertoireGaugeIndex = true,
+    songTimerGaugeIndex = true,
+    advancedEnabled = true,
+}
+CielBard.PresetPreserved = PRESET_PRESERVED
+
 local function applyPreset(name)
     local config = settings()
-    config.abilities = deepCopy(CielBardData.AbilityDefaults)
-    config.aoeTargets = deepCopy(CielBardData.AoEDefaults)
-    config.useAOE = CielBardData.Defaults.useAOE
-    config.multiDot = CielBardData.Defaults.multiDot
-    config.burstDotGate = CielBardData.Defaults.burstDotGate
-    config.radiantFinaleMinCodas = CielBardData.Defaults.radiantFinaleMinCodas
-    config.maxWeaves = CielBardData.Defaults.maxWeaves
-    config.executionMode = CielBardData.Defaults.executionMode
-    config.snapshotIronJaws = CielBardData.Defaults.snapshotIronJaws
-    config.terminalDumping = CielBardData.Defaults.terminalDumping
-    config.resourcePooling = CielBardData.Defaults.resourcePooling
-    config.automaticSongCycle = CielBardData.Defaults.automaticSongCycle
+    for key, value in pairs(CielBardData.Defaults) do
+        if not PRESET_PRESERVED[key] then config[key] = deepCopy(value) end
+    end
     merge(config, CielBardData.Presets[name] or {})
     config.preset = name
     markDirty()
 end
+CielBard.ApplyPreset = applyPreset
 
 local function presetButton(label, name)
     if GUI:Button(label, 118, 23) then applyPreset(name) end
@@ -378,6 +397,7 @@ function CielBard.DrawWindow()
         if config.useAOE then
             aoeSlider("Ladonsbite targets", "Ladonsbite")
             aoeSlider("Shadowbite targets", "Shadowbite")
+            aoeSlider("Shadowbite targets while Barrage is up", "ShadowbiteBarrage")
             aoeSlider("Rain of Death targets", "RainOfDeath")
         end
         checkbox("Multi-dot nearby enemies", "multiDot")
@@ -565,6 +585,11 @@ function CielBard.Draw()
     if not CielBard.windowOpen then return end
     CielBard.DrawWindow()
 end
+
+-- The module table itself is local so nothing can clobber it by accident.
+-- This global is the read-only handle used by the offline test harnesses and
+-- by anything that wants to drive the window or presets from outside.
+CielBardUI = CielBard
 
 RegisterEventHandler("Module.Initalize", CielBard.Init, "CielBard.Init")
 RegisterEventHandler("Gameloop.Update", CielBard.Update, "CielBard.Update")
