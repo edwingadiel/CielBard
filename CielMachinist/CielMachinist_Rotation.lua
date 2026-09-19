@@ -39,6 +39,7 @@ E.state = {
     potionItem = nil,
     potionAction = nil,
     potionUsedAt = 0,
+    prepullArmedUntil = 0,
     heat = 0,
     battery = 0,
     overheated = false,
@@ -710,12 +711,15 @@ end
 -- The tool the GCD chain would press if the GCD came up within `within`
 -- seconds, in the same order E.TryGCD uses. Full Metal Field is reported
 -- separately because it is already a guaranteed critical direct hit.
-function E.NextTool(ctx, within)
+function E.NextTool(ctx, within, heldWithin)
     local drill = drillState()
+    -- Air Anchor and Chain Saw get the GCD held for them (toolHoldSeconds), so
+    -- they may be counted on a little later than a Drill charge can.
+    heldWithin = heldWithin or within
     if E.AbilityEnabled("AirAnchor") and
-        airAnchorCooldown() <= within then return "AirAnchor" end
+        airAnchorCooldown() <= heldWithin then return "AirAnchor" end
     if E.AbilityEnabled("Drill") and drill.info and drill.charges >= drill.max then return "Drill" end
-    if E.AbilityEnabled("ChainSaw") and toolCooldown(A.ChainSaw) <= within then return "ChainSaw" end
+    if E.AbilityEnabled("ChainSaw") and toolCooldown(A.ChainSaw) <= heldWithin then return "ChainSaw" end
     if E.AbilityEnabled("Excavator") and E.ExcavatorPending() then return "Excavator" end
     if E.AbilityEnabled("Drill") then
         if drill.info and (drill.charges >= 1 or drill.remaining <= within) then return "Drill" end
@@ -802,6 +806,26 @@ local function hyperchargedExpiring()
     return remaining > 0 and remaining <= 4
 end
 
+-- The two-minute burst wants two Hypercharges: the free one Barrel Stabilizer
+-- grants and a heat-funded one right behind it (The Balance's static burst).
+-- Hardly any heat is generated inside the burst itself, so the second one has
+-- to be paid for in advance: an off-cycle Hypercharge is refused when the heat
+-- left over, plus what the combo regenerates before the burst, would not reach
+-- `hyperchargeBurstHeat`. A gauge that reads under 50 while Hypercharge is
+-- ready is a miscalibrated index, and a blind hold would never release, so
+-- that case never pools; neither does a full gauge.
+function E.HeatPooledForBurst(ctx)
+    local c = E.config
+    if not c.resourcePooling or not ctx.burstConfigured or ctx.terminal or ctx.burstActive then return false end
+    local wanted = tonumber(c.hyperchargeBurstHeat) or 0
+    if wanted <= 0 then return false end
+    if buffRemaining(Player, ST.Hypercharged, Player.id) > 0 then return false end
+    local heat = ctx.heat or 0
+    if heat < 50 or heat >= 100 then return false end
+    local projected = heat - 50 + (tonumber(c.heatPerSecond) or 1) * (ctx.nextBurst or 999)
+    return projected < wanted
+end
+
 function E.HyperchargeAllowed(ctx)
     local c = E.config
     if not E.AbilityEnabled("Hypercharge") or not overheatSpenderEnabled() then return false end
@@ -820,6 +844,7 @@ function E.HyperchargeAllowed(ctx)
             return false
         end
     end
+    if E.HeatPooledForBurst(ctx) then return false end
     return true, "Hypercharge at " .. tostring(ctx.heat) .. " heat"
 end
 
@@ -941,7 +966,9 @@ function E.ReassembleAllowed(ctx)
     if not E.AbilityEnabled("Reassemble") or ctx.overheated or E.Reassembled() then return false end
     -- The tool has to be off its recast comfortably before the GCD is, or the
     -- guaranteed critical direct hit lands on whatever filler goes out instead.
-    local tool = E.NextTool(ctx, math.max(0, (ctx.gcdRemaining or 0) - 0.2))
+    local gcdRemaining = ctx.gcdRemaining or 0
+    local tool = E.NextTool(ctx, math.max(0, gcdRemaining - 0.2),
+        gcdRemaining + math.max(0, (tonumber(c.toolHoldSeconds) or 0) - 0.1))
     if not tool then return false end
     -- Bioblaster is a DoT; the guaranteed critical direct hit is wasted on it.
     if tool == "Drill" and bioblasterWanted(ctx) then return false end
@@ -1082,6 +1109,40 @@ function E.TryOGCD(ctx)
         or "Double Check / Checkmate on cooldown")
 end
 
+-- Pre-pull ------------------------------------------------------------------------
+-- The Balance opens with Reassemble at -5 s and the potion at -2 s. The engine
+-- has no countdown to read, so the pre-pull runs in two situations only:
+--   * `requireCombat` is off, so the engine itself pulls: Reassemble and the
+--     potion go out immediately before its first weaponskill;
+--   * the user arms it (the window's "Pre-pull now" button) while waiting for
+--     someone else's pull, and has five seconds to land the first weaponskill.
+-- Reassemble is only spent from a full stack, so an aborted pull costs the
+-- recharge and nothing else.
+
+function E.ArmPrepull(seconds)
+    E.state.prepullArmedUntil = now() + (tonumber(seconds) or 10) * 1000
+end
+
+function E.PrepullArmed()
+    return (E.state.prepullArmedUntil or 0) > now()
+end
+
+function E.TryPrepull(target)
+    local c, s = E.config, E.state
+    if E.PendingOGCD(now()) then
+        s.lastDecision = "Waiting for client to confirm last oGCD"
+        return true
+    end
+    if E.AbilityEnabled("Reassemble") and not E.Reassembled() then
+        local charges = s.charges.Reassemble or chargeState(A.Reassemble, 2)
+        if (not charges.info or charges.charges >= charges.max) and
+            E.TryCast(A.Reassemble, target, "Pre-pull Reassemble") then return true end
+    end
+    if c.usePotion and c.potionPrepull and
+        E.TryPotion(nil, "Pre-pull potion: " .. tostring(s.potionName)) then return true end
+    return false
+end
+
 -- One decision pulse. `viaACR` is true when ACR's Cast() callback drives the
 -- engine; ACR's Enabled toggle is then the master switch instead of
 -- config.enabled. Returns true when an action request was issued.
@@ -1097,10 +1158,12 @@ function E.Step(viaACR)
     if type(MIsLoading) == "function" and MIsLoading() then return false end
     if type(MIsLocked) == "function" and MIsLocked() then return false end
     if type(MIsCasting) == "function" and MIsCasting() then return false end
-    if c.requireCombat and not Player.incombat then
+    local prepull = not Player.incombat and c.prepull and (not c.requireCombat or E.PrepullArmed())
+    if c.requireCombat and not Player.incombat and not prepull then
         if s.sampleTargetID ~= 0 then E.ResetCombat("Waiting for combat") end
         return false
     end
+    if Player.incombat then s.prepullArmedUntil = 0 end
     local target = E.GetTarget()
     if not target then s.lastDecision = "No valid target" return false end
     if tonumber(target.distance2d) and target.distance2d > 25 then s.lastDecision = "Target out of range" return false end
@@ -1111,6 +1174,13 @@ function E.Step(viaACR)
 
     E.ObserveLastCast()
     E.UpdateCharges()
+    if prepull then
+        if E.TryPrepull(target) then return true end
+        if c.requireCombat then
+            s.lastDecision = "Pre-pull done: waiting for the pull"
+            return false
+        end
+    end
     E.UpdateTTK(target, ticks)
     s.enemyCount = E.CountEnemiesNear(target)
 

@@ -386,7 +386,19 @@ function CielMachinist.DrawWindow()
             checkbox("Only with burst", "potionOnlyWithBurst")
             GUI:SameLine()
             checkbox("HQ only", "potionHQOnly")
+            GUI:SameLine()
+            checkbox("In pre-pull", "potionPrepull")
             GUI:Text("Potion found: " .. tostring(state.potionName or "None"))
+        end
+
+        checkbox("Pre-pull Reassemble", "prepull")
+        if config.prepull and config.requireCombat then
+            GUI:SameLine()
+            if GUI:Button(CielMachinistEngine.PrepullArmed() and "Pre-pull armed##cielmach-prepull"
+                    or "Pre-pull now##cielmach-prepull", 130, 22) then
+                CielMachinistEngine.ArmPrepull(10)
+            end
+            GUI:TextWrapped("Target the enemy and press this about five seconds before the pull; Reassemble lasts five seconds.")
         end
 
         GUI:Separator()
@@ -412,6 +424,7 @@ function CielMachinist.DrawWindow()
         if GUI:CollapsingHeader("Rotation tuning") then
             sliderFloat("No Hypercharge if a tool is due within (s)", "hyperchargeToolLeadSeconds", 5, 12)
             sliderInt("Keep Hypercharge for Wildfire within (s)", "hyperchargeHoldForBurstSeconds", 0, 30)
+            sliderInt("Heat kept for a second burst Hypercharge (0 = off)", "hyperchargeBurstHeat", 0, 60)
             sliderInt("Wildfire minimum TTK", "wildfireMinimumTTK", 0, 20)
             sliderInt("Queen minimum battery off-cycle", "queenBatteryOffcycle", 50, 100)
             sliderInt("Queen minimum battery in burst", "queenBatteryBurst", 50, 100)

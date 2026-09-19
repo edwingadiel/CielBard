@@ -6,7 +6,7 @@ CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMi
 
 The current release is **v0.5.2**. On 2026-09-19 the maintainer ran it through the ACR profile on a live training dummy and reported it working correctly; no session log was captured, so the per-item checklist under *Installation and first live test* (each advanced toggle, AoE thresholds, kill-time bands) is not individually signed off, and it has not been run in duties. Execution is disabled by default.
 
-A second module, **CielMachinist 0.1.0**, now lives in `CielMachinist/`; see *Machinist module* at the end of this document.
+A second module, **CielMachinist 0.2.0**, now lives in `CielMachinist/`; see *Machinist module* at the end of this document.
 
 v0.5.2 implements the engine half of the external v0.5.1 code review (`REVIEW_0.5.1.md`): Barrage-aware Shadowbite, multi-dot off by default, a lazy ACR stub that survives reverse load order, pending-request dedupe, a complete Optimized-preset reset, and `debug` off. See *Engine changes made from the 0.5.1 code review* below.
 
@@ -682,13 +682,13 @@ on the old potency curve and have not been re-taken.
   and the potion landing before Raging Strikes on the opener (the song takes the first
   weave slot). See "Known mechanic mismatches" in `sim/README.md`.
 
-## Machinist module (CielMachinist 0.1.0)
+## Machinist module (CielMachinist 0.2.0)
 
 `CielMachinist/` is a second installable module for level-100 Machinist. The decisions that shaped it:
 
 - **Same repository, separate module.** It shares `tests/` and `tools/` with CielBard but installs on its own into `LuaMods/CielMachinist`.
 - **Copy and adapt, not a shared core.** The job-agnostic machinery (guards, `TryCast` and the pending-request guard, weave limits, the TTK estimator, AoE counting, potion handling, flat settings persistence, presets, the ACR profile and its lazy stub) was copied from the live-proven Bard files rather than extracted, so CielBard was not touched and each module stays standalone. Extract a shared core only once both are stable live; until then a fix in that machinery has to be made in both modules.
-- **Job guide and The Balance first.** Potencies and IDs were verified against the official job guide (Patch 7.5) and the xivapi Action/Status sheets; rotation rules follow The Balance's level-100 opener, static two-minute burst, FAQ and AoE tables. No parse study and no entry in `sim/` yet.
+- **Job guide and The Balance first.** Potencies and IDs were verified against the official job guide (Patch 7.5) and the xivapi Action/Status sheets; rotation rules follow The Balance's level-100 opener, static two-minute burst, FAQ and AoE tables. No parse study yet. Its simulator is the separate `sim_mch/` package (see below).
 
 ### Files
 
@@ -698,7 +698,9 @@ on the old potency curve and have not been re-taken.
 | `CielMachinist/CielMachinist_Rotation.lua` | Engine: state, procs, charges, combo, tools, Hypercharge/Wildfire, Queen, priorities. |
 | `CielMachinist/CielMachinist.lua` | Init, flat settings persistence, presets, window, ACR profile. |
 | `CielMachinist/acr/CielMachinist.lua` | Lazy ACR stub for `LuaMods/ACR/CombatRoutines/`. |
-| `tests/run_mch_mock_tests.py` | Lua parsing, static priority cases, and the time-stepped timeline test. |
+| `sim_mch/` | Simulator: JSON data tables, `fakeclient.lua`, pricing, `run` and `sweep` CLIs, `output/FINDINGS.md`. |
+| `tests/run_mch_mock_tests.py` | Lua parsing, static priority cases, and the timeline test driven through `sim_mch`. |
+| `tests/test_mch_sim.py` | Simulator unit tests; ids in the JSON tables are checked against the shipped Lua. |
 | `tests/run_mch_gui_tests.py` | Settings proxy, presets, ACR profile and stub, and coexistence with CielBard in one Lua state. |
 
 ### Engine design
@@ -719,14 +721,22 @@ Globals are `CielMachinistData`, `CielMachinistEngine`, `CielMachinistUI`, `Ciel
 - **Reassemble** only when `E.NextTool` says a tool will be off its recast at least 0.2 s before the GCD is. Without that margin the timeline test caught it landing on Heated Slug Shot.
 - **Automaton Queen** (`E.QueenAllowed`): potency is linear in battery, so the policy only avoids overcap and arrives at the burst full. Off-cycle at `queenBatteryOffcycle` (90); "last call" at any legal battery when `nextBurst` is within `queenRefillSeconds + queenLastCallSeconds` (42 + 10); kept inside the refill window unless full; inside the burst she waits up to `queenTopOffSeconds` (5.5) for a +20 tool that still fits. `E.GetBattery` reads at least 50 whenever the summon is ready, so a wrong gauge index cannot silence her.
 
+### Added in 0.2.0
+
+- **Pre-pull** (`E.TryPrepull`, `E.ArmPrepull`, settings `prepull`, `potionPrepull`). There is no countdown to read, so it runs only when the engine itself pulls (`requireCombat` off: Reassemble, potion, then the first weaponskill) or when the user arms it from the window's **Pre-pull now** button while waiting for someone else's pull (Reassemble and potion only; the engine never pulls in that mode, and the arm lapses after 10 s or on entering combat). Reassemble is only taken from a full stack.
+- **Heat pooling** (`E.HeatPooledForBurst`, `hyperchargeBurstHeat`, `heatPerSecond`): an off-cycle, heat-funded Hypercharge is refused when `heat - 50 + heatPerSecond x nextBurst` would fall short of the target. Never applied to the free Hypercharge, inside the burst, in the terminal band, at a full gauge, or when the gauge reads under 50 while Hypercharge is ready (a miscalibrated index must not hold forever). **Ships Off (0)** because `sim_mch` measures 45 at -0.07% to -0.24% on average: the second Hypercharge starts about 0:23 into the burst, after a 20 s party window has closed, and banked heat may never be spent. Full table in `sim_mch/output/FINDINGS.md`.
+- **Reassemble prediction** counts on Air Anchor and Chain Saw up to `toolHoldSeconds` after the GCD, because the GCD is held for them. Without that, a tool falling exactly on the GCD boundary was not seen and Reassemble sat capped for 30 s.
+- **`sim_mch/`**, a separate simulator package. `sim/` was not extended because its core is songs, Repertoire and DoTs and its tests pin the Bard engine by hash. The fake client is Lua (`sim_mch/fakeclient.lua`) and data-driven from JSON; Python prices the cast log afterwards. Machinist has no random procs, so one fight per configuration gives exact differences in expected damage. The sweeps in FINDINGS.md confirm every shipped default as the best value tested (`toolHoldSeconds` 0.4 is worth +0.34%, holding Hypercharge for Wildfire +0.32%, summoning the Queen near the cap +0.30%).
+- The fake client's clock starts at 100 s, not 0: `E.RefreshPotion` rate-limits its inventory scan against `Now()`, and at a zero clock the first five seconds never scanned, which hid the potion from the pre-pull.
+
 ### What the timeline test shows
 
 `python tests/run_mch_mock_tests.py -v` prints it. With shipped defaults on the fake client (2.50 GCD, 0.6 s animation lock, no latency):
 
 - Opener: Air Anchor [Barrel Stabilizer, Reassemble] Drill [DC, CM] Chain Saw [DC, CM] Excavator [Reassemble, Queen at 60] Drill [DC, CM] Full Metal Field [Hypercharge, Wildfire] Blazing Shot x5 with one weave each, Drill. This is The Balance's standard opener with Wildfire moved behind Hypercharge and the first Reassemble moved from pre-pull to the first weave.
-- Six minutes: Wildfire 6/6/6 hits, 50 Blazing Shots in 10 Hypercharges, 0 heat and 0 battery wasted, no broken combo, Air Anchor idle 0.06 s in total, GCD idle 0.06 s, never more than two weaves (one after Blazing Shot), Queens at 60 / 90 / 90 / 90 / 50 / 100 / 100.
+- Six minutes: Wildfire 6/6/6 hits, 50 Blazing Shots in 10 Hypercharges, 0 heat and 0 battery wasted, no broken combo, GCD and Air Anchor never idle, never more than two weaves (one after Blazing Shot), Queens at 60 / 90 / 90 / 90 / 50 / 100 / 100.
 
-The fake client is a rule checker, not a damage model: there is no DPS number, no crit, no party buffs and no latency.
+The fake client enforces rules and logs casts; `sim_mch/core.py` prices the log (uncalibrated). Request latency is not modelled.
 
 ### Unverified on a live client
 
@@ -743,7 +753,6 @@ Everything in CielBard's *Important implementation assumptions* list, plus:
 ### Next steps for Machinist
 
 1. First live dummy session with `debug` on, following `CielMachinist/README.md`; fix API mismatches before anything else.
-2. Heat pooling for a second, heat-funded Hypercharge inside the two-minute burst (The Balance's static burst has two; the engine currently arrives with whatever heat is left).
-3. Pre-pull Reassemble and potion, which need an out-of-combat hook.
-4. Flamethrower, Dismantle / Tactician timing, Head Graze.
-5. A Machinist data set and job rules for `sim/` so defaults can be swept the way the Bard ones were, then an FFLogs parse study for calibration.
+2. Revisit heat pooling once a live log shows where party buffs actually sit relative to the engine's burst; pulling Wildfire earlier would also change the answer.
+3. Flamethrower, Dismantle / Tactician timing, Head Graze.
+4. An FFLogs parse study to calibrate `sim_mch` (`potency_to_damage`, the Queen's hit timeline, cast rates), and request-latency modelling in the fake client.

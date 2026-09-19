@@ -4,14 +4,16 @@
 Three layers, all against the shipped Lua loaded verbatim:
   1. every Lua file parses;
   2. direct priority cases against a static mocked MMOMinion runtime;
-  3. a time-stepped fake client (GCD, animation lock, charges, Heat, Battery,
-     statuses, Wildfire hit counting) that runs the engine through the opener
-     and a six-minute dummy fight and checks the rotation's shape.
+  3. sim_mch's time-stepped fake client (GCD, animation lock, charges, Heat,
+     Battery, statuses, Wildfire hit counting) runs the engine through the
+     opener, the pre-pull and a six-minute dummy fight and checks the
+     rotation's shape.
 
 Install the two lightweight test dependencies with:
     python -m pip install lupa luaparser
 """
 
+import sys
 from pathlib import Path
 
 from lupa import LuaRuntime
@@ -572,6 +574,102 @@ E.state.weavesSinceGCD = 0
 expect(E.TryOGCD(directContext()) and lastCastID() == A.BarrelStabilizer, "Barrel Stabilizer on cooldown")
 expect(lastCastTarget() == 100, "Barrel Stabilizer must be requested on the player")
 
+----------------------------------------------------------------------------
+-- Heat pooling for a second burst Hypercharge (opt-in).
+----------------------------------------------------------------------------
+
+c = resetHarness()
+quietCooldowns()
+setReady(A.Hypercharge)
+ctx = directContext()
+ctx.heat, ctx.nextBurst = 60, 20
+expect(c.hyperchargeBurstHeat == 0, "heat pooling ships Off")
+expect(E.HyperchargeAllowed(ctx), "with pooling Off, heat is spent as soon as the tools allow")
+c.hyperchargeBurstHeat = 45
+expect(E.HeatPooledForBurst(ctx), "60 heat 20 s before burst leaves 10 + 20 < 45")
+expect(not E.HyperchargeAllowed(ctx), "so Hypercharge is kept")
+ctx.nextBurst = 60
+expect(E.HyperchargeAllowed(ctx), "far from the burst the heat regenerates in time")
+ctx.nextBurst = 20
+ctx.heat = 100
+expect(E.HyperchargeAllowed(ctx), "a full gauge is never sat on")
+ctx.heat = 0
+expect(E.HyperchargeAllowed(ctx), "a gauge that reads under 50 while Hypercharge is ready is not trusted")
+ctx.heat = 60
+ctx.burstActive = true
+expect(E.HyperchargeAllowed(ctx), "inside the burst the pooled heat is spent")
+ctx.burstActive = false
+ctx.terminal = true
+expect(E.HyperchargeAllowed(ctx), "the terminal band spends it too")
+ctx.terminal = false
+setStatus(ST.Hypercharged, 20)
+expect(E.HyperchargeAllowed(ctx), "the free Hypercharge is never pooled")
+Player.buffs = {}
+c.resourcePooling = false
+expect(E.HyperchargeAllowed(ctx), "pooling Off disables it")
+
+----------------------------------------------------------------------------
+-- Pre-pull.
+----------------------------------------------------------------------------
+
+-- Waiting for someone else's pull: nothing until armed, and never a weaponskill.
+c = resetHarness()
+quietCooldowns()
+c.enabled = true
+c.requireCombat = true
+Player.incombat = false
+setCharges(A.Reassemble, 2, 2, 55)
+setReady(A.Reassemble) setReady(A.AirAnchor) setReady(A.HeatedSplitShot)
+E.OnUpdate()
+expect(#castLog == 0, "an unarmed engine does nothing out of combat")
+E.ArmPrepull(10)
+E.OnUpdate()
+expect(#castLog == 1 and lastCastID() == A.Reassemble, "an armed pre-pull presses Reassemble")
+expect(lastCastTarget() == 100, "on the player")
+setStatus(ST.Reassembled, 4)
+E.OnUpdate()
+expect(#castLog == 1, "and then waits for the pull without pulling itself")
+Player.buffs = {}
+
+-- Only from a full stack, so an aborted pull costs nothing but the recharge.
+c = resetHarness()
+quietCooldowns()
+c.enabled = true
+Player.incombat = false
+E.ArmPrepull(10)
+setCharges(A.Reassemble, 1, 2, 55, 10)
+setReady(A.Reassemble)
+E.OnUpdate()
+expect(#castLog == 0, "no pre-pull Reassemble from a partial stack")
+
+-- The engine pulls itself: Reassemble first, then the weaponskill.
+c = resetHarness()
+quietCooldowns()
+c.enabled = true
+c.requireCombat = false
+Player.incombat = false
+setCharges(A.Reassemble, 2, 2, 55)
+setReady(A.Reassemble) setReady(A.AirAnchor)
+E.OnUpdate()
+expect(lastCastID() == A.Reassemble, "self-pull starts with Reassemble")
+setStatus(ST.Reassembled, 4.5)
+setCharges(A.Reassemble, 1, 2, 55, 1)
+E.OnUpdate()
+expect(lastCastID() == A.AirAnchor, "and then opens with Air Anchor")
+Player.buffs = {}
+-- Switched off, it goes straight to the weaponskill.
+c = resetHarness()
+quietCooldowns()
+c.enabled = true
+c.requireCombat = false
+c.prepull = false
+Player.incombat = false
+setCharges(A.Reassemble, 2, 2, 55)
+setReady(A.Reassemble) setReady(A.AirAnchor)
+E.OnUpdate()
+expect(lastCastID() == A.AirAnchor, "pre-pull Off opens with the weaponskill")
+Player.incombat = true
+
 -- Wrong job does nothing.
 c = resetHarness()
 c.enabled = true
@@ -580,269 +678,6 @@ setReady(A.HeatedSplitShot)
 E.OnUpdate()
 expect(#castLog == 0, "the engine must not act on another job")
 Player.job = 31
-'''
-
-
-# A time-stepped imitation of the live client: the engine is driven pulse by
-# pulse and every game rule that shapes the Machinist rotation is enforced
-# here, so the assertions below are about what the engine actually pressed.
-TIMELINE_ENV = r'''
-local A = CielMachinistData.Actions
-local ST = CielMachinistData.Statuses
-
-clock = 0                -- milliseconds
-Now = function() return clock end
-MIsLoading = function() return false end
-MIsLocked = function() return false end
-MIsCasting = function() return false end
-EntityList = function() return {} end
-
-sim = {
-    heat = 0, battery = 0, gcdReadyAt = 0, gcdTotal = 2500, lockUntil = 0,
-    statuses = {}, overheatStacks = 0, lastCastAt = -999999, lastCastID = 0,
-    comboID = 0, comboUntil = 0, queenBusyUntil = 0, wildfireHits = 0,
-    log = {}, wildfires = {}, queens = {}, reassembled = {},
-    wasted = { heat = 0, battery = 0 }, idle = { gcd = 0, drillCapped = 0, AirAnchor = 0, ChainSaw = 0 },
-    capped = { DoubleCheck = 0, Checkmate = 0, Reassemble = 0 },
-}
-
-local target = { id = 200, name = "Dummy", alive = true, targetable = true, incombat = true,
-    distance2d = 10, los = true, hp = { current = 1e9, max = 1e9, percent = 100 }, buffs = {},
-    pos = { x = 0, y = 0, z = 0 } }
-Player = { id = 100, alive = true, job = 31, incombat = true, hp = { current = 1, percent = 100 },
-    buffs = {}, gauge = { 0, 0 }, castinginfo = { lastcastid = 0, timesincecast = 999999 },
-    GetTarget = function() return target end }
-
-local function status(id) return (sim.statuses[id] or 0) > clock end
-local function grant(id, seconds) sim.statuses[id] = clock + seconds * 1000 end
-local function strip(id) sim.statuses[id] = nil end
-
--- recast = own cooldown in seconds, max = charges, gcd = weaponskill
-local defs = {
-    [A.HeatedSplitShot] = { gcd = true, heat = 5, combo = 1 },
-    [A.HeatedSlugShot] = { gcd = true, heat = 5, combo = 2 },
-    [A.HeatedCleanShot] = { gcd = true, heat = 5, battery = 10, combo = 3 },
-    [A.Drill] = { gcd = true, recast = 20, max = 2 },
-    [A.AirAnchor] = { gcd = true, recast = 40, max = 1, battery = 20 },
-    [A.ChainSaw] = { gcd = true, recast = 60, max = 1, battery = 20,
-        effect = function() grant(ST.ExcavatorReady, 30) end },
-    [A.Excavator] = { gcd = true, battery = 20, need = function() return status(ST.ExcavatorReady) end,
-        effect = function() strip(ST.ExcavatorReady) end },
-    [A.FullMetalField] = { gcd = true, need = function() return status(ST.FullMetalMachinist) end,
-        effect = function() strip(ST.FullMetalMachinist) end, keepsReassemble = true },
-    [A.BlazingShot] = { gcd = true, gcdTotal = 1500, need = function() return sim.overheatStacks > 0 and status(ST.Overheated) end,
-        effect = function()
-            sim.overheatStacks = sim.overheatStacks - 1
-            if sim.overheatStacks <= 0 then strip(ST.Overheated) end
-            for _, id in ipairs({ A.DoubleCheck, A.Checkmate }) do
-                local st = sim.cd[id]
-                st.charges = math.min(st.max, st.charges + 15 / st.recast)
-            end
-        end },
-    [A.Hypercharge] = { recast = 10, max = 1, selfOnly = true,
-        need = function() return (sim.heat >= 50 or status(ST.Hypercharged)) and not status(ST.Overheated) end,
-        effect = function()
-            if status(ST.Hypercharged) then strip(ST.Hypercharged) else sim.heat = sim.heat - 50 end
-            grant(ST.Overheated, 10)
-            sim.overheatStacks = 5
-        end },
-    [A.Wildfire] = { recast = 120, max = 1, effect = function()
-            grant(ST.WildfireSelf, 10)
-            sim.wildfireHits = 0
-            sim.wildfireOpenAt = clock
-        end },
-    [A.BarrelStabilizer] = { recast = 120, max = 1, selfOnly = true, effect = function()
-            grant(ST.Hypercharged, 30)
-            grant(ST.FullMetalMachinist, 30)
-        end },
-    [A.Reassemble] = { recast = 55, max = 2, selfOnly = true, effect = function() grant(ST.Reassembled, 5) end },
-    [A.DoubleCheck] = { recast = 30, max = 3 },
-    [A.Checkmate] = { recast = 30, max = 3 },
-    [A.AutomatonQueen] = { recast = 6, max = 1, selfOnly = true,
-        need = function() return sim.battery >= 50 and clock >= sim.queenBusyUntil end,
-        effect = function()
-            table.insert(sim.queens, { t = clock / 1000, battery = sim.battery })
-            sim.battery = 0
-            sim.queenBusyUntil = clock + 21000
-        end },
-}
-
-sim.cd = {}
-for id, def in pairs(defs) do
-    if def.recast then sim.cd[id] = { charges = def.max, max = def.max, recast = def.recast } end
-end
-
-local names = {}
-for name, id in pairs(A) do names[id] = name end
-function actionName(id) return names[id] or tostring(id) end
-
-local objects = {}
-local function makeAction(id)
-    local def = defs[id]
-    local ac = { id = id, name = actionName(id), usable = def ~= nil, highlighted = false }
-    if not def then
-        ac.IsReady = function() return false end
-        ac.Cast = function() return false end
-        return ac
-    end
-    local function refresh()
-        local st = sim.cd[id]
-        if st then
-            ac.recasttime = st.recast
-            if st.charges >= st.max then
-                ac.cd, ac.cdmax, ac.isoncd = 0, 0, false
-            else
-                ac.cd, ac.cdmax, ac.isoncd = st.charges * st.recast, st.max * st.recast, true
-            end
-        else
-            ac.recasttime = sim.gcdTotal / 1000
-            local remaining = math.max(0, sim.gcdReadyAt - clock)
-            if remaining <= 0 then
-                ac.cd, ac.cdmax, ac.isoncd = 0, 0, false
-            else
-                ac.cd, ac.cdmax, ac.isoncd = (sim.gcdTotal - remaining) / 1000, sim.gcdTotal / 1000, true
-            end
-        end
-    end
-    ac.refresh = refresh
-    ac.IsReady = function(self, targetID)
-        if def.selfOnly and targetID ~= Player.id then return false end
-        if not def.selfOnly and targetID ~= target.id then return false end
-        if clock < sim.lockUntil then return false end
-        if def.gcd and sim.gcdReadyAt - clock > 60 then return false end
-        local st = sim.cd[id]
-        if st and st.charges < 1 then return false end
-        if def.need and not def.need() then return false end
-        return true
-    end
-    ac.Cast = function(self, targetID)
-        if not self:IsReady(targetID) then return false end
-        local st = sim.cd[id]
-        if st then st.charges = st.charges - 1 end
-        if def.gcd then
-            sim.gcdTotal = def.gcdTotal or 2500
-            sim.gcdReadyAt = math.max(clock, sim.gcdReadyAt) + sim.gcdTotal
-            if status(ST.WildfireSelf) then sim.wildfireHits = sim.wildfireHits + 1 end
-            if status(ST.Reassembled) and not def.keepsReassemble then
-                strip(ST.Reassembled)
-                table.insert(sim.reassembled, actionName(id))
-            end
-            if def.combo then
-                local continues = def.combo == 1 or (sim.comboID == def.combo - 1 and clock < sim.comboUntil)
-                sim.comboOK = continues
-                sim.comboID = continues and def.combo % 3 or 0
-                sim.comboUntil = clock + 30000
-                Player.lastcomboid = sim.comboID > 0 and id or 0
-                if not continues then sim.brokenCombos = (sim.brokenCombos or 0) + 1 end
-            end
-        end
-        local gainHeat, gainBattery = def.heat or 0, def.battery or 0
-        if def.combo and def.combo > 1 and not sim.comboOK then gainHeat, gainBattery = 0, 0 end
-        sim.wasted.heat = sim.wasted.heat + math.max(0, sim.heat + gainHeat - 100)
-        sim.wasted.battery = sim.wasted.battery + math.max(0, sim.battery + gainBattery - 100)
-        sim.heat = math.min(100, sim.heat + gainHeat)
-        sim.battery = math.min(100, sim.battery + gainBattery)
-        if def.effect then def.effect() end
-        sim.lockUntil = clock + 600
-        sim.lastCastAt, sim.lastCastID = clock, id
-        table.insert(sim.log, { t = clock / 1000, id = id, name = actionName(id), gcd = def.gcd == true,
-            heat = sim.heat, battery = sim.battery })
-        return true
-    end
-    return ac
-end
-
-ActionList = {
-    Get = function(self, actionType, id)
-        if not objects[id] then objects[id] = makeAction(id) end
-        if objects[id].refresh then objects[id].refresh() end
-        return objects[id]
-    end,
-    IsCasting = function() return false end,
-}
-
-function advance(ms)
-    local dt = ms / 1000
-    -- idle accounting before the clock moves
-    if clock >= sim.gcdReadyAt and clock >= sim.lockUntil then sim.idle.gcd = sim.idle.gcd + dt end
-    if sim.cd[A.Drill].charges >= 2 then sim.idle.drillCapped = sim.idle.drillCapped + dt end
-    for _, key in ipairs({ "AirAnchor", "ChainSaw" }) do
-        if sim.cd[A[key]].charges >= 1 then sim.idle[key] = sim.idle[key] + dt end
-    end
-    for _, key in ipairs({ "DoubleCheck", "Checkmate", "Reassemble" }) do
-        if sim.cd[A[key]].charges >= sim.cd[A[key]].max then sim.capped[key] = sim.capped[key] + dt end
-    end
-    clock = clock + ms
-    for _, st in pairs(sim.cd) do
-        if st.charges < st.max then st.charges = math.min(st.max, st.charges + dt / st.recast) end
-    end
-    if sim.wildfireOpenAt and not status(ST.WildfireSelf) then
-        table.insert(sim.wildfires, { t = sim.wildfireOpenAt / 1000, hits = math.min(6, sim.wildfireHits) })
-        sim.wildfireOpenAt = nil
-    end
-    if not status(ST.Overheated) then sim.overheatStacks = 0 end
-    Player.buffs = {}
-    for id, untilAt in pairs(sim.statuses) do
-        if untilAt > clock then
-            table.insert(Player.buffs, { id = id, ownerid = Player.id, duration = (untilAt - clock) / 1000 })
-        end
-    end
-    Player.gauge = { sim.heat, sim.battery }
-    Player.combotimeremain = math.max(0, (sim.comboUntil - clock) / 1000)
-    Player.castinginfo = { lastcastid = sim.lastCastID, timesincecast = clock - sim.lastCastAt }
-end
-
-function run(seconds)
-    local untilAt = clock + seconds * 1000
-    while clock < untilAt do
-        CielMachinistEngine.Step(true)
-        advance(30)
-    end
-end
-
-function gcdNames(count)
-    local out = {}
-    for _, entry in ipairs(sim.log) do
-        if entry.gcd then table.insert(out, entry.name) end
-        if #out >= count then break end
-    end
-    return table.concat(out, ",")
-end
-
-function countCasts(name, fromSeconds, toSeconds)
-    local total = 0
-    for _, entry in ipairs(sim.log) do
-        if entry.name == name and entry.t >= (fromSeconds or 0) and entry.t < (toSeconds or 1e9) then total = total + 1 end
-    end
-    return total
-end
-
--- Largest number of oGCDs between two consecutive weaponskills, split by
--- whether the preceding weaponskill was a Blazing Shot.
-function maxWeaves()
-    local normal, overheated, current, afterBlazing = 0, 0, 0, false
-    for _, entry in ipairs(sim.log) do
-        if entry.gcd then
-            current, afterBlazing = 0, entry.name == "BlazingShot"
-        else
-            current = current + 1
-            if afterBlazing then overheated = math.max(overheated, current)
-            else normal = math.max(normal, current) end
-        end
-    end
-    return normal, overheated
-end
-
-function dumpLog(toSeconds)
-    local lines = {}
-    for _, entry in ipairs(sim.log) do
-        if entry.t <= toSeconds then
-            table.insert(lines, string.format("%6.2f %s%s  heat=%d battery=%d", entry.t,
-                entry.gcd and "" or "    ", entry.name, entry.heat, entry.battery))
-        end
-    end
-    return table.concat(lines, "\n")
-end
 '''
 
 
@@ -855,76 +690,75 @@ def run_static() -> None:
 
 
 def run_timeline(verbose: bool = False) -> None:
-    lua = LuaRuntime(unpack_returned_tuples=True)
-    lua.execute((MODULE / "CielMachinist_Data.lua").read_text(encoding="utf-8"))
-    lua.execute(TIMELINE_ENV)
-    lua.execute((MODULE / "CielMachinist_Rotation.lua").read_text(encoding="utf-8"))
-    lua.execute('''
-        local config = {}
-        local function clone(v) if type(v) ~= "table" then return v end
-            local r = {} for k, c in pairs(v) do r[k] = clone(c) end return r end
-        config = clone(CielMachinistData.Defaults)
-        CielMachinistEngine.Init(config)
-    ''')
+    """Drive the shipped engine through sim_mch's fake client and check the rotation's shape."""
+    sys.path.insert(0, str(ROOT))
+    from sim_mch.core import FightConfig, simulate
+    from sim_mch.run import format_report
+
+    ok = ("Drill", "AirAnchor", "ChainSaw", "Excavator")
 
     # --- Opener -------------------------------------------------------------
-    lua.execute("run(30)")
+    opener = simulate(FightConfig(seconds=30))
     if verbose:
-        print(lua.eval("dumpLog(30)"))
-    opener = lua.eval("gcdNames(12)")
-    expected = ("AirAnchor,Drill,ChainSaw,Excavator,Drill,FullMetalField,"
-                "BlazingShot,BlazingShot,BlazingShot,BlazingShot,BlazingShot,Drill")
-    assert opener == expected, f"opener GCDs were {opener}\n{lua.eval('dumpLog(30)')}"
-
-    order = [entry.name for entry in lua.eval("sim.log").values()]
+        print(format_report(opener, timeline_s=30))
+    gcds = [e["name"] for e in opener.log if e["gcd"]][:12]
+    expected = ["AirAnchor", "Drill", "ChainSaw", "Excavator", "Drill", "FullMetalField"] + \
+        ["BlazingShot"] * 5 + ["Drill"]
+    assert gcds == expected, f"opener GCDs were {gcds}"
+    order = [e["name"] for e in opener.log]
     wildfire, fmf, hyper = order.index("Wildfire"), order.index("FullMetalField"), order.index("Hypercharge")
     assert fmf < hyper and wildfire == hyper + 1 and wildfire < order.index("BlazingShot"), \
         "opener must go Full Metal Field -> Hypercharge -> Wildfire -> Blazing Shot"
     assert order.index("BarrelStabilizer") < order.index("ChainSaw"), "Barrel Stabilizer opens the burst"
-    assert lua.eval("sim.wildfires[1].hits") == 6, "the opener Wildfire must catch six weaponskills"
-    assert lua.eval("sim.queens[1].battery") == 60, "the opener Queen goes out at 60 battery"
-    assert lua.eval("sim.queens[1].t") < 12, "the opener Queen must not be late"
-    assert lua.eval("#sim.reassembled") == 2, "both Reassemble charges are spent in the opener"
-    for index in (1, 2):
-        name = lua.eval(f"sim.reassembled[{index}]")
-        assert name in ("Drill", "AirAnchor", "ChainSaw", "Excavator"), f"Reassemble landed on {name}"
+    assert opener.wildfire_hits == [6], "the opener Wildfire must catch six weaponskills"
+    assert opener.queens[0][1] == 60 and opener.queens[0][0] < 12, "the opener Queen goes out at 60 battery"
+    reassembled = [e["name"] for e in opener.log if e["reassembled"]]
+    assert len(reassembled) == 2 and all(name in ok for name in reassembled), reassembled
     print("opener ok")
 
+    # --- Pre-pull: the engine pulls, so Reassemble and the potion go first ----
+    pre = simulate(FightConfig(seconds=20, start_in_combat=False, potions=1,
+                               engine={"requireCombat": False}))
+    names = [e["name"] for e in pre.log[:3]]
+    assert names == ["Reassemble", "Potion", "AirAnchor"], f"pre-pull was {names}"
+    assert pre.log[0]["t"] < 0 and pre.log[1]["t"] < 0 and pre.log[2]["t"] == 0
+    assert pre.log[2]["reassembled"], "the pre-pull Reassemble must land on Air Anchor"
+    assert pre.casts.get("Potion") == 1, "the potion is not taken twice"
+    # Someone else pulls: nothing happens until the user arms the pre-pull.
+    waiting = simulate(FightConfig(seconds=10, start_in_combat=False, pull_after_s=8.0))
+    assert all(e["t"] >= 0 for e in waiting.log), "an unarmed engine must not act before the pull"
+    armed = simulate(FightConfig(seconds=10, start_in_combat=False, pull_after_s=8.0, arm_prepull_at_s=4.0))
+    early = [e for e in armed.log if e["t"] < 0]
+    assert [e["name"] for e in early] == ["Reassemble"], f"armed pre-pull pressed {early}"
+    assert not any(e["gcd"] for e in early), "an armed pre-pull must never pull"
+    print("pre-pull ok")
+
     # --- Six-minute dummy fight ---------------------------------------------
-    lua.execute("run(330)")
-    seconds = lua.eval("clock / 1000")
-    normal, overheated = lua.eval("maxWeaves()")
+    fight = simulate(FightConfig(seconds=360))
+    if verbose:
+        print(format_report(fight))
+    seconds, stats, casts = fight.duration_s, fight.stats, fight.casts
+
+    normal = overheated = current = 0
+    after_short = False
+    for entry in fight.log:
+        if entry["gcd"]:
+            current, after_short = 0, entry["name"] in ("BlazingShot", "AutoCrossbow")
+        else:
+            current += 1
+            if after_short:
+                overheated = max(overheated, current)
+            else:
+                normal = max(normal, current)
     assert normal <= 2, f"{normal} weaves after an ordinary weaponskill"
     assert overheated <= 1, f"{overheated} weaves after a Blazing Shot"
 
-    stats = {
-        "gcd idle": lua.eval("sim.idle.gcd"),
-        "Drill capped": lua.eval("sim.idle.drillCapped"),
-        "Air Anchor idle": lua.eval("sim.idle.AirAnchor"),
-        "Chain Saw idle": lua.eval("sim.idle.ChainSaw"),
-        "Double Check capped": lua.eval("sim.capped.DoubleCheck"),
-        "Checkmate capped": lua.eval("sim.capped.Checkmate"),
-        "Reassemble capped": lua.eval("sim.capped.Reassemble"),
-        "heat wasted": lua.eval("sim.wasted.heat"),
-        "battery wasted": lua.eval("sim.wasted.battery"),
-    }
-    casts = {name: lua.eval(f'countCasts("{name}")') for name in (
-        "Drill", "AirAnchor", "ChainSaw", "Excavator", "FullMetalField", "BlazingShot", "Hypercharge",
-        "Wildfire", "BarrelStabilizer", "Reassemble", "DoubleCheck", "Checkmate", "AutomatonQueen")}
-    if verbose:
-        for key, value in stats.items():
-            print(f"  {key:22s} {value:8.2f}")
-        for key, value in casts.items():
-            print(f"  {key:22s} {value:5d}")
-        print("  wildfire hits:", [w.hits for w in lua.eval("sim.wildfires").values()])
-        print("  queen battery:", [q.battery for q in lua.eval("sim.queens").values()])
-
     # The GCD never sits idle, and no tool drifts by more than a GCD or two per use.
-    assert stats["gcd idle"] < 0.02 * seconds, stats
-    assert stats["Drill capped"] < 6, stats          # the pull itself starts capped
-    assert stats["Air Anchor idle"] <= 2.6 * casts["AirAnchor"], stats
-    assert stats["Chain Saw idle"] <= 2.6 * casts["ChainSaw"] + 3, stats
-    assert lua.eval("sim.brokenCombos or 0") == 0, "the combo must never be broken"
+    assert stats["gcd_idle_s"] < 0.02 * seconds, stats
+    assert stats["drill_capped_s"] < 6, stats          # the pull itself starts capped
+    assert stats["air_anchor_idle_s"] <= 2.6 * casts["AirAnchor"], stats
+    assert stats["chain_saw_idle_s"] <= 2.6 * casts["ChainSaw"] + 3, stats
+    assert stats["broken_combos"] == 0, "the combo must never be broken"
 
     # Cooldowns are used at their natural rate over 360 s.
     assert casts["BarrelStabilizer"] == 3 and casts["Wildfire"] == 3, casts
@@ -932,31 +766,35 @@ def run_timeline(verbose: bool = False) -> None:
     assert casts["AirAnchor"] >= 9 and casts["ChainSaw"] >= 6 and casts["Excavator"] == casts["ChainSaw"], casts
     assert casts["Drill"] >= 18, casts
     assert casts["BlazingShot"] == 5 * casts["Hypercharge"], "every Hypercharge fits five Blazing Shots"
+    assert casts["Hypercharge"] >= 10, casts
     assert casts["Reassemble"] >= 7, casts
 
-    # Every Wildfire catches six weaponskills.
-    hits = [w.hits for w in lua.eval("sim.wildfires").values()]
-    assert hits == [6, 6, 6], f"Wildfire hits were {hits}"
-    # Reassemble never lands on a filler, a Blazing Shot or Full Metal Field.
-    for name in lua.eval("sim.reassembled").values():
-        assert name in ("Drill", "AirAnchor", "ChainSaw", "Excavator"), f"Reassemble landed on {name}"
+    assert fight.wildfire_hits == [6, 6, 6], f"Wildfire hits were {fight.wildfire_hits}"
+    for entry in fight.log:
+        if entry["reassembled"]:
+            assert entry["name"] in ok, f"Reassemble landed on {entry['name']}"
 
     # Resources are not thrown away.
-    assert stats["heat wasted"] <= 10, stats
-    assert stats["battery wasted"] <= 40, stats
-    assert stats["Double Check capped"] < 10 and stats["Checkmate capped"] < 10, stats
-    assert stats["Reassemble capped"] < 6, stats
+    assert stats["heat_wasted"] <= 10, stats
+    assert stats["battery_wasted"] <= 40, stats
+    assert stats["double_check_capped_s"] < 10 and stats["checkmate_capped_s"] < 10, stats
+    assert stats["reassemble_capped_s"] < 6, stats
     # The even-minute Queens carry a full battery.
-    queens = [(q.t, q.battery) for q in lua.eval("sim.queens").values()]
     for mark in (120, 240):
-        near = [battery for t, battery in queens if mark - 6 <= t <= mark + 15]
-        assert near and max(near) >= 90, f"no full-battery Queen at the {mark}s burst: {queens}"
+        near = [battery for t, battery in fight.queens if mark - 6 <= t <= mark + 15]
+        assert near and max(near) >= 90, f"no full-battery Queen at the {mark}s burst: {fight.queens}"
     print("six-minute fight ok")
+
+    # --- Heat pooling (off by default) buys a second Hypercharge in the burst --
+    pooled = simulate(FightConfig(seconds=200, engine={"hyperchargeBurstHeat": 45}))
+    in_burst = [e["t"] for e in pooled.log if e["name"] == "Hypercharge" and 120 <= e["t"] <= 150]
+    assert len(in_burst) == 2, f"pooled heat should fund two Hypercharges in the 2:00 burst: {in_burst}"
+    plain = [e["t"] for e in fight.log if e["name"] == "Hypercharge" and 120 <= e["t"] <= 150]
+    assert len(plain) == 1, f"without pooling the burst has the free Hypercharge only: {plain}"
+    print("heat pooling ok")
 
 
 if __name__ == "__main__":
-    import sys
-
     parse_all()
     run_static()
     print("static priority cases ok")

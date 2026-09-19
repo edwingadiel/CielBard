@@ -1,0 +1,10 @@
+{
+  "_notes": "Same stat profile the Bard simulator ships. potency_to_damage is uncalibrated: no Machinist parse study exists yet, so DPS figures are only comparable with each other.",
+  "crit_rate": 0.2454,
+  "crit_mult": 1.60,
+  "dh_rate": 0.2282,
+  "dh_mult": 1.25,
+  "potency_to_damage": 100.0,
+  "damage_variance": 0.05,
+  "potion_damage_mult": 1.08
+}

@@ -1,6 +1,6 @@
 CielMachinistData = CielMachinistData or {}
 
-CielMachinistData.Version = "0.1.0"
+CielMachinistData.Version = "0.2.0"
 CielMachinistData.MachinistJobID = 31
 CielMachinistData.ACRProfileName = "CielMachinist"
 
@@ -193,6 +193,14 @@ CielMachinistData.Defaults = {
     -- A heat-funded Hypercharge is not started this close to the two-minute
     -- burst, so Overheated never overlaps Barrel Stabilizer and Wildfire.
     hyperchargeHoldForBurstSeconds = 12,
+    -- Heat kept at the top of the burst so a second, heat-funded Hypercharge
+    -- can follow the free one, as in The Balance's static burst. OFF (0) by
+    -- default: sim_mch measures it at -0.07% to -0.24% on average across fight
+    -- lengths and party-buff placements, because the second Hypercharge lands
+    -- after the 20 s window anyway and banked heat is heat not yet spent.
+    -- 45 is the value to try. `heatPerSecond` is the regeneration it assumes.
+    hyperchargeBurstHeat = 0,
+    heatPerSecond = 1.0,
     -- Wildfire follows Hypercharge directly. It is not spent on an Overheated
     -- window with fewer than this many Blazing Shots left.
     wildfireMinimumStacks = 3,
@@ -230,6 +238,11 @@ CielMachinistData.Defaults = {
     potionOnlyWithBurst = true,
     potionHQOnly = false,
     potionMinimumTTK = 8,
+    potionPrepull = true, -- with potion use on, the pre-pull takes it too
+
+    -- Pre-pull Reassemble (and potion): automatic when the engine pulls
+    -- (requireCombat off), otherwise armed from the window.
+    prepull = true,
 
     secondWindHP = 45,
     tacticianHP = 70,
