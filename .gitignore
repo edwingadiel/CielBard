@@ -21,3 +21,7 @@ sim/output/ab_*.json
 sim/output/sweep_*_confirm*.json
 sim/output/sweep_apex.json
 sim/output/batch.json
+
+# Machinist parse study: raw FFLogs event streams are cached locally only.
+mch-analysis/output/events/
+mch-analysis/output/errors.json
