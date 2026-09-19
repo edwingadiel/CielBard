@@ -1,6 +1,45 @@
 # CielMachinist 0.2.0 — simulator findings
 
-Measured with `sim_mch` against the shipped engine, 2026-09-19. Unless stated otherwise: one 10% party-buff window of 20 s every 120 s from 0:06, the target dying at the end of the fight, and every point averaged over fight lengths of 300, 360, 420, 480 and 540 s. The rotation is deterministic, so these are exact differences in expected damage, not estimates. DPS is uncalibrated; read the percentages.
+Measured with `sim_mch` against the shipped engine, 2026-09-19. **Section 0 is the calibration against 40 real parses; read it first.** Sections 1-5 were measured before calibration (scalar 100, assumed Queen timeline); the key sweeps were re-run afterwards and every conclusion held (section 0.4). Unless stated otherwise: one 10% party-buff window of 20 s every 120 s from 0:06, the target dying at the end of the fight, and every point averaged over fight lengths of 300, 360, 420, 480 and 540 s. The rotation is deterministic, so these are exact differences in expected damage, not estimates. DPS is uncalibrated; read the percentages.
+
+## 0. Calibration against the top 40 Machinist parses (Vamp Fatale)
+
+Full report: `calibration.md`. Source: `mch-analysis/output/summary.json` (fights of 501-563 s). Every parse was re-simulated at its own length with the shipped defaults.
+
+### 0.1 The engine presses what the top players press
+
+| per minute | engine | top 10 | difference |
+|---|---:|---:|---:|
+| all weaponskills | 27.40 | 27.23 | +0.6% |
+| Drill | 3.172 | 3.150 | +0.7% |
+| Air Anchor | 1.545 | 1.534 | +0.7% |
+| Chain Saw, Excavator, Full Metal Field, Wildfire, Barrel Stabilizer | | | 0.0% |
+| Heated combo (three actions) | 11.61 | 11.55 | +0.5% |
+| Hypercharge | 1.708 | 1.661 | +2.8% |
+| Blazing Shot | 8.399 | 8.213 | +2.3% |
+| Double Check + Checkmate | 12.91 | 12.69 | +1.7% |
+| Reassemble | 1.243 | 1.174 | +5.9% |
+| Automaton Queen summons | 1.324 | 1.394 | -5.0% |
+
+- **The opener is identical** to the most common opener in the top 10 (5 of 10): Air Anchor, Drill, Chain Saw, Excavator, Drill, Full Metal Field, Blazing Shot x5, Drill.
+- Damage shares agree within about a point everywhere except the combo (engine 21.3%, top 10 19.3%) and the Queen (14.5% vs 15.5%), which is what party buffs do: players' tools and Queen finishers sit under buffs the simulator's scalar spreads evenly.
+- The engine's extra Hypercharges and Reassembles are real uses the parses lose to movement and mechanics; the offline engine never moves. Fewer Queen summons is the policy (summon near the cap); battery spent is the same.
+- Potions: 24 of 40 parses take the opener (or pre-pull) and 6:00, which is what the engine does; 9 take 2:00 and about 8:00 instead.
+
+### 0.2 One placement differs: Wildfire
+
+Top players press Wildfire a median **1.58 s before** Hypercharge (the double weave ahead of it). The engine presses it about 0.6 s **after**. Both catch six weaponskills; the engine's order was chosen because the offline client showed the early slot dropping the sixth hit without a late weave. Worth revisiting on a live client, where the early placement puts Full Metal Field inside Wildfire.
+
+### 0.3 Fitted values (written to `sim_mch/data`)
+
+- `potency_to_damage` = **111.85** (was an uncalibrated 100), fitted to parse aDPS with auto attacks removed. Residual: mean |error| 0.81%, worst 2.56%. On that scale the engine simulates **1.20% below the top-10 mean**.
+- Auto attacks are **6.71%** of a Machinist's damage; the simulator does not model them (`auto_attack_share`).
+- **Automaton Queen's measured timeline** replaced the assumed one. In melee range she does five Arm Punches at 6.4 / 8.0 / 9.5 / 11.1 / 12.7 s after the summon, Pile Bunker at 14.7 s and Crowned Collider at 17.5 s: 26.6 potency per battery, matching The Balance. The assumed timeline had her finishers two seconds early (13.0 / 15.5 s). When she is out of range the parses show Roller Dash plus three Arm Punches instead, with the same total.
+- While building this, the collector was found to double count pet damage (FFLogs already folds a pet's hits into its owner's stream) and to count the potion buff mirrored onto the Queen. Both are fixed and covered by `tests/test_mch_calibration.py`.
+
+### 0.4 Re-run on the calibrated simulator
+
+Same conditions as below. `queenBatteryOffcycle` 90 (+0.31% over 50), `queenRefillSeconds` 42 (30: -0.18%, 55: -0.30%), `queenTopOffSeconds` 5.5 (+0.14% over 0), `toolHoldSeconds` 0.4 (+0.34%), and heat pooling still loses (**-0.29%**). No default changed.
 
 ## 1. Every shipped default is the best value tested
 

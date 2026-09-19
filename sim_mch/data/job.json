@@ -1,9 +1,9 @@
 {
   "_notes": "Rules that are not per-action. UNVERIFIED marks a simulator assumption rather than a sourced fact.",
   "job_id": 31,
-  "gcd_base_s": 2.50,
-  "anim_lock_s": 0.60,
-  "potion_anim_lock_s": 1.10,
+  "gcd_base_s": 2.5,
+  "anim_lock_s": 0.6,
+  "potion_anim_lock_s": 1.1,
   "gcd_request_window_s": 0.06,
   "heat_max": 100,
   "battery_max": 100,
@@ -11,25 +11,64 @@
   "overheated_single_target_bonus": 20,
   "combo_window_s": 30,
   "dot_tick_s": 3.0,
-
-  "wildfire": { "potency_per_hit": 240, "max_hits": 6, "can_crit": false },
-
+  "wildfire": {
+    "potency_per_hit": 240,
+    "max_hits": 6,
+    "can_crit": false
+  },
   "queen": {
     "min_battery": 50,
     "lockout_s": 21.0,
     "potency_scale": 0.89,
     "_potency_scale_note": "The Balance's 'normalized pet potency' (2368 at 100 battery) over the raw 2660: pets do not inherit every player multiplier.",
-    "_hits_note": "Coefficients are potency per point of battery (job guide: 120-240, 240-480, 340-680, 390-780). The sequence of one Roller Dash, three Arm Punches, Pile Bunker and Crowned Collider reproduces The Balance's 26.6 potency per battery. Offsets from the summon are UNVERIFIED: first hit ~5 s after the summon, finishers at the end of ~16 s.",
+    "_hits_note": "Sequence and offsets measured by sim_mch.calibrate from the parse summary; coefficients are the job guide's potency per point of battery.",
     "hits": [
-      { "name": "Roller Dash",      "per_battery": 4.8, "offset_s": 5.5 },
-      { "name": "Arm Punch",        "per_battery": 2.4, "offset_s": 7.0 },
-      { "name": "Arm Punch",        "per_battery": 2.4, "offset_s": 8.5 },
-      { "name": "Arm Punch",        "per_battery": 2.4, "offset_s": 10.0 },
-      { "name": "Pile Bunker",      "per_battery": 6.8, "offset_s": 13.0, "finisher": true },
-      { "name": "Crowned Collider", "per_battery": 7.8, "offset_s": 15.5, "finisher": true }
+      {
+        "name": "Arm Punch",
+        "per_battery": 2.4,
+        "offset_s": 6.37
+      },
+      {
+        "name": "Arm Punch",
+        "per_battery": 2.4,
+        "offset_s": 7.97
+      },
+      {
+        "name": "Arm Punch",
+        "per_battery": 2.4,
+        "offset_s": 9.53
+      },
+      {
+        "name": "Arm Punch",
+        "per_battery": 2.4,
+        "offset_s": 11.09
+      },
+      {
+        "name": "Arm Punch",
+        "per_battery": 2.4,
+        "offset_s": 12.65
+      },
+      {
+        "name": "Pile Bunker",
+        "per_battery": 6.8,
+        "offset_s": 14.74,
+        "finisher": true
+      },
+      {
+        "name": "Crowned Collider",
+        "per_battery": 7.8,
+        "offset_s": 17.46,
+        "finisher": true
+      }
     ],
-    "overdrive_finisher_offsets_s": [1.0, 3.5]
+    "overdrive_finisher_offsets_s": [
+      1.0,
+      3.5
+    ]
   },
-
-  "potion": { "hqid": 1049235, "cooldown_s": 270, "duration_s": 30 }
+  "potion": {
+    "hqid": 1049235,
+    "cooldown_s": 270,
+    "duration_s": 30
+  }
 }

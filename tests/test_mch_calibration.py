@@ -47,8 +47,10 @@ def fake_raw(rank: int, seconds: float, tables) -> dict:
         if entry["name"] != "Potion":
             continue
         if entry["t"] >= 0:
-            medicated.append({"type": "applybuff", "timestamp": stamp(entry["t"])})
-        medicated.append({"type": "removebuff", "timestamp": stamp(entry["t"] + 30)})
+            medicated.append({"type": "applybuff", "timestamp": stamp(entry["t"]), "sourceID": 3, "targetID": 3})
+            # the Queen mirrors the buff; that copy must not be counted as a potion
+            medicated.append({"type": "applybuff", "timestamp": stamp(entry["t"]), "sourceID": 3, "targetID": 18})
+        medicated.append({"type": "removebuff", "timestamp": stamp(entry["t"] + 30), "sourceID": 3, "targetID": 3})
     damage, pet = [], []
     skill_total = 0.0
     for hit in fight.hits:

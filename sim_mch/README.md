@@ -41,9 +41,16 @@ Always sweep with `--over seconds=...`: a single fight length decides a comparis
 
 ## Limits
 
-- **Uncalibrated.** `potency_to_damage` is 100 and the stat profile is the Bard simulator's. There is no Machinist parse study, so DPS figures are comparable with each other and with nothing else.
-- **The Queen's timeline is assumed.** Her total (26.6 potency per battery, The Balance) and per-hit coefficients (job guide) are sourced; when each hit lands after the summon is not. Her 0.89 potency scale is The Balance's normalized-pet figure.
-- **No auto attacks**, no movement or downtime, no Flamethrower, and extra targets all stand in the cluster and never die.
+- **Calibrated with one scalar.** `potency_to_damage` (111.85) was fitted by `python -m sim_mch.calibrate` against the top 40 Vamp Fatale parses collected by `mch-analysis/collect.py`; residual mean error 0.81%. The stat profile is still the Bard simulator's, and the scalar absorbs gear, party buffs received and real downtime, so judge a rotation from cast rates, not from DPS.
+- **The Queen's timeline is measured** from the same parses (five Arm Punches, Pile Bunker at 14.7 s, Crowned Collider at 17.5 s after the summon). Her 0.89 potency scale is The Balance's normalized-pet figure.
+- **No auto attacks** (6.7% of real damage, recorded as `auto_attack_share`), no movement or downtime, no Flamethrower, and extra targets all stand in the cluster and never die.
 - The client answers the way the engine *assumes* the live client does (see "Unverified on a live client" in `HANDOFF.md`). It cannot discover an API mismatch; only a live session can.
 
-Results so far are in `output/FINDINGS.md`.
+Results are in `output/FINDINGS.md`; the parse comparison is `output/calibration.md`.
+
+## Recalibrating
+
+```bash
+python mch-analysis/collect.py --top 40      # needs FFLOGS_CLIENT_ID / FFLOGS_CLIENT_SECRET
+python -m sim_mch.calibrate --out sim_mch/output/calibration.md --write
+```

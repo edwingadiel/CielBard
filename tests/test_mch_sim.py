@@ -76,9 +76,11 @@ class Simulation(unittest.TestCase):
 
     def test_queen_damage_scales_with_battery(self):
         first_t, battery = self.fight.queens[0]
-        dash = next(h for h in self.fight.hits if h["name"] == "Queen: Roller Dash" and h["t"] > first_t)
         queen = self.tables["job"]["queen"]
-        assert abs(dash["potency"] - 4.8 * battery * queen["potency_scale"]) < 1e-9
+        opening = queen["hits"][0]
+        hit = next(h for h in self.fight.hits if h["name"] == "Queen: " + opening["name"] and h["t"] > first_t)
+        assert abs(hit["potency"] - opening["per_battery"] * battery * queen["potency_scale"]) < 1e-9
+        assert abs(hit["t"] - (first_t + opening["offset_s"])) < 1e-6
 
     def test_party_buffs_raise_damage_only_inside_the_window(self):
         window = BuffWindow(every_s=120, offset_s=6, duration_s=20, mult=1.10)

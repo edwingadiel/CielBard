@@ -1,10 +1,11 @@
 {
-  "_notes": "Same stat profile the Bard simulator ships. potency_to_damage is uncalibrated: no Machinist parse study exists yet, so DPS figures are only comparable with each other.",
+  "_notes": "potency_to_damage and auto_attack_share were fitted by sim_mch.calibrate against mch-analysis/output/summary.json; the stat profile itself is the Bard simulator's.",
   "crit_rate": 0.2454,
-  "crit_mult": 1.60,
+  "crit_mult": 1.6,
   "dh_rate": 0.2282,
   "dh_mult": 1.25,
-  "potency_to_damage": 100.0,
+  "potency_to_damage": 111.8541,
   "damage_variance": 0.05,
-  "potion_damage_mult": 1.08
+  "potion_damage_mult": 1.08,
+  "auto_attack_share": 0.06714
 }

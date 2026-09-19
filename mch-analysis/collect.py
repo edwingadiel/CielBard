@@ -47,9 +47,10 @@ query Fight($code: String!, $fightIDs: [Int]) {
 """
 
 EVENTS_QUERY = """
-query Events($code: String!, $fightIDs: [Int], $sourceID: Int, $type: EventDataType!, $start: Float, $ability: Float) {
+query Events($code: String!, $fightIDs: [Int], $sourceID: Int, $type: EventDataType!,
+             $start: Float, $end: Float, $ability: Float) {
   reportData { report(code: $code) {
-    events(fightIDs: $fightIDs, sourceID: $sourceID, dataType: $type, startTime: $start, abilityID: $ability,
+    events(fightIDs: $fightIDs, sourceID: $sourceID, dataType: $type, startTime: $start, endTime: $end, abilityID: $ability,
            limit: 10000) {
       data nextPageTimestamp }
   } }
@@ -87,13 +88,15 @@ class FFLogs:
             raise RuntimeError(payload["errors"])
         return payload["data"]
 
-    def events(self, code: str, fight_id: int, source_id: int, data_type: str, start: float,
+    def events(self, code: str, fight_id: int, source_id: int, data_type: str, start: float, end: float,
                ability: Optional[int] = None) -> List[dict]:
+        """Every event of one type from one source. FFLogs returns nothing when a start
+        time is given without an end time, so both bounds are always sent."""
         out: List[dict] = []
         cursor: Optional[float] = start
         while cursor is not None:
             node = self.query(EVENTS_QUERY, {"code": code, "fightIDs": [fight_id], "sourceID": source_id,
-                                             "type": data_type, "start": cursor, "ability": ability})
+                                             "type": data_type, "start": cursor, "end": end, "ability": ability})
             page = node["reportData"]["report"]["events"]
             out.extend(page["data"])
             cursor = page.get("nextPageTimestamp")
@@ -118,13 +121,13 @@ def collect_one(api: FFLogs, rank: int, ranking: Dict[str, Any]) -> Dict[str, An
     actors = node["masterData"]["actors"]
     actor = resolve_actor(actors, fight["friendlyPlayers"], ranking["name"])
     pets = [a for a in actors if a.get("petOwner") == actor["id"]]
-    start = fight["startTime"]
-    casts = api.events(code, fight_id, actor["id"], "Casts", start)
-    damage = api.events(code, fight_id, actor["id"], "DamageDone", start)
-    medicated = api.events(code, fight_id, actor["id"], "Buffs", start, MEDICATED)
+    start, end = fight["startTime"], fight["endTime"]
+    casts = api.events(code, fight_id, actor["id"], "Casts", start, end)
+    damage = api.events(code, fight_id, actor["id"], "DamageDone", start, end)
+    medicated = api.events(code, fight_id, actor["id"], "Buffs", start, end, MEDICATED)
     pet_damage: List[dict] = []
     for pet in pets:
-        pet_damage += api.events(code, fight_id, pet["id"], "DamageDone", start)
+        pet_damage += api.events(code, fight_id, pet["id"], "DamageDone", start, end)
     return {
         "rank": rank, "amount": ranking.get("amount"), "aDPS": ranking.get("aDPS"),
         "rDPS": ranking.get("rDPS"), "nDPS": ranking.get("nDPS"),
@@ -158,7 +161,10 @@ def summarise(raw: Dict[str, Any]) -> Dict[str, Any]:
             out[name_of(e)] = out.get(name_of(e), 0.0) + float(e.get("amount", 0))
         return out
 
-    player, pet = total(raw["damage"]), total(raw["pet_damage"])
+    # FFLogs already folds a pet's damage into its owner's stream, so the Queen's hits are
+    # taken from the pet's own events and dropped from the player's to avoid counting twice.
+    pet = total(raw["pet_damage"])
+    player = {k: v for k, v in total(raw["damage"]).items() if k not in QUEEN_HITS}
     grand = sum(player.values()) + sum(pet.values())
 
     # Queen hit timeline: for every summon, her hits as (name, seconds after the summon).
@@ -184,7 +190,9 @@ def summarise(raw: Dict[str, Any]) -> Dict[str, Any]:
     # Potions. A pre-pull potion is pressed before the fight starts, so its cast is not in
     # the fight's events; it shows up as a Medicated buff that is removed without ever
     # having been applied.
-    buff_events = sorted(raw.get("medicated", []), key=lambda e: e["timestamp"])
+    # The Queen mirrors the buff, so only events whose target is the player count.
+    buff_events = sorted((e for e in raw.get("medicated", []) if e.get("targetID") == e.get("sourceID")),
+                         key=lambda e: e["timestamp"])
     potions = sum(1 for e in buff_events if e.get("type") == "applybuff")
     if buff_events and buff_events[0].get("type") == "removebuff":
         potions += 1
@@ -243,7 +251,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         errors = []
         for rank, ranking in enumerate(rankings[:args.top], start=1):
             path = events_dir / f"rank-{rank:02d}.json"
-            if path.exists():
+            if path.exists() and json.loads(path.read_text(encoding="utf-8")).get("casts"):
                 print(f"[{rank}/{args.top}] cached")
                 continue
             try:

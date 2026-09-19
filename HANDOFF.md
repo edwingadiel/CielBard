@@ -729,6 +729,10 @@ Globals are `CielMachinistData`, `CielMachinistEngine`, `CielMachinistUI`, `Ciel
 - **`sim_mch/`**, a separate simulator package. `sim/` was not extended because its core is songs, Repertoire and DoTs and its tests pin the Bard engine by hash. The fake client is Lua (`sim_mch/fakeclient.lua`) and data-driven from JSON; Python prices the cast log afterwards. Machinist has no random procs, so one fight per configuration gives exact differences in expected damage. The sweeps in FINDINGS.md confirm every shipped default as the best value tested (`toolHoldSeconds` 0.4 is worth +0.34%, holding Hypercharge for Wildfire +0.32%, summoning the Queen near the cap +0.30%).
 - The fake client's clock starts at 100 s, not 0: `E.RefreshPotion` rate-limits its inventory scan against `Now()`, and at a zero clock the first five seconds never scanned, which hid the potion from the pre-pull.
 
+### Calibration against real parses (2026-09-19)
+
+`mch-analysis/collect.py` pulled the top 40 Machinist parses for Vamp Fatale and `sim_mch.calibrate` re-simulated each at its own length. The engine's weaponskill rate is within 0.6% of the top 10, every tool and two-minute cooldown within 0.7%, and **its opener is the most common top-10 opener, weaponskill for weaponskill**. The fitted scalar is 111.85 with a 0.81% mean residual, and the engine lands 1.20% under the top-10 mean. The Queen's hit timeline is now measured rather than assumed. The one placement that differs: top players weave Wildfire about 1.6 s *before* Hypercharge, the engine 0.6 s after; both get six hits offline. Details in `sim_mch/output/FINDINGS.md` section 0 and `sim_mch/output/calibration.md`.
+
 ### What the timeline test shows
 
 `python tests/run_mch_mock_tests.py -v` prints it. With shipped defaults on the fake client (2.50 GCD, 0.6 s animation lock, no latency):
@@ -755,4 +759,4 @@ Everything in CielBard's *Important implementation assumptions* list, plus:
 1. First live dummy session with `debug` on, following `CielMachinist/README.md`; fix API mismatches before anything else.
 2. Revisit heat pooling once a live log shows where party buffs actually sit relative to the engine's burst; pulling Wildfire earlier would also change the answer.
 3. Flamethrower, Dismantle / Tactician timing, Head Graze.
-4. An FFLogs parse study to calibrate `sim_mch` (`potency_to_damage`, the Queen's hit timeline, cast rates), and request-latency modelling in the fake client.
+4. Try Wildfire ahead of Hypercharge on a live client (what top parses do) once weave timing there is known, and model request latency in the fake client so the simulator can judge it.
