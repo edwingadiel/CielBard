@@ -1,6 +1,6 @@
 CielMachinistData = CielMachinistData or {}
 
-CielMachinistData.Version = "0.2.0"
+CielMachinistData.Version = "0.2.1"
 CielMachinistData.MachinistJobID = 31
 CielMachinistData.ACRProfileName = "CielMachinist"
 
@@ -204,6 +204,13 @@ CielMachinistData.Defaults = {
     -- Wildfire follows Hypercharge directly. It is not spent on an Overheated
     -- window with fewer than this many Blazing Shots left.
     wildfireMinimumStacks = 3,
+    -- AFTER: Wildfire in the weave slot behind Hypercharge. BEFORE: one
+    -- weaponskill ahead of it, late-weaved, which is what 55% of the top-40
+    -- parses do (28% do AFTER). sim_mch: identical damage with clean timing;
+    -- at 100 ms ping plus 150 ms jitter BEFORE drops to five hits 45% of the
+    -- time against 2% for AFTER (-0.30%), so AFTER stays the default.
+    wildfirePlacement = "AFTER",
+    wildfireLateWeaveSeconds = 1.3,
     wildfireMinimumTTK = 8,
 
     -- Automaton Queen. Her potency is linear in the battery spent, so the

@@ -426,6 +426,15 @@ function CielMachinist.DrawWindow()
             sliderInt("Keep Hypercharge for Wildfire within (s)", "hyperchargeHoldForBurstSeconds", 0, 30)
             sliderInt("Heat kept for a second burst Hypercharge (0 = off)", "hyperchargeBurstHeat", 0, 60)
             sliderInt("Wildfire minimum TTK", "wildfireMinimumTTK", 0, 20)
+            GUI:Text("Wildfire placement")
+            for _, mode in ipairs({ { "After Hypercharge", "AFTER" }, { "One weaponskill before", "BEFORE" } }) do
+                local prefix = config.wildfirePlacement == mode[2] and "[x] " or "[ ] "
+                if GUI:Button(prefix .. mode[1] .. "##cielmach-wf-" .. mode[2], 190, 23) then
+                    config.wildfirePlacement = mode[2]
+                    markDirty()
+                end
+                if mode[2] == "AFTER" then GUI:SameLine() end
+            end
             sliderInt("Queen minimum battery off-cycle", "queenBatteryOffcycle", 50, 100)
             sliderInt("Queen minimum battery in burst", "queenBatteryBurst", 50, 100)
             sliderInt("Keep battery when burst within (s)", "queenRefillSeconds", 0, 90)

@@ -731,7 +731,7 @@ Globals are `CielMachinistData`, `CielMachinistEngine`, `CielMachinistUI`, `Ciel
 
 ### Calibration against real parses (2026-09-19)
 
-`mch-analysis/collect.py` pulled the top 40 Machinist parses for Vamp Fatale and `sim_mch.calibrate` re-simulated each at its own length. The engine's weaponskill rate is within 0.6% of the top 10, every tool and two-minute cooldown within 0.7%, and **its opener is the most common top-10 opener, weaponskill for weaponskill**. The fitted scalar is 111.85 with a 0.81% mean residual, and the engine lands 1.20% under the top-10 mean. The Queen's hit timeline is now measured rather than assumed. The one placement that differs: top players weave Wildfire about 1.6 s *before* Hypercharge, the engine 0.6 s after; both get six hits offline. Details in `sim_mch/output/FINDINGS.md` section 0 and `sim_mch/output/calibration.md`.
+`mch-analysis/collect.py` pulled the top 40 Machinist parses for Vamp Fatale and `sim_mch.calibrate` re-simulated each at its own length. The engine's weaponskill rate is within 0.6% of the top 10, every tool and two-minute cooldown within 0.7%, and **its opener is the most common top-10 opener, weaponskill for weaponskill**. The fitted scalar is 111.85 with a 0.81% mean residual, and the engine lands 1.20% under the top-10 mean. The Queen's hit timeline is now measured rather than assumed. The one placement that differs: 55% of top-parse Wildfires go out one weaponskill *before* Hypercharge, the engine's 0.6 s after. That placement was added in 0.2.1 as `wildfirePlacement = "BEFORE"` and measured: identical damage with clean timing, but its sixth hit has 0.2 s of slack against 1.2 s, so at 100 ms ping plus jitter it drops to five hits 45% of the time (-0.30%). AFTER stays the default. Details in `sim_mch/output/FINDINGS.md` section 0 and `sim_mch/output/calibration.md`.
 
 ### What the timeline test shows
 
@@ -759,4 +759,4 @@ Everything in CielBard's *Important implementation assumptions* list, plus:
 1. First live dummy session with `debug` on, following `CielMachinist/README.md`; fix API mismatches before anything else.
 2. Revisit heat pooling once a live log shows where party buffs actually sit relative to the engine's burst; pulling Wildfire earlier would also change the answer.
 3. Flamethrower, Dismantle / Tactician timing, Head Graze.
-4. Try Wildfire ahead of Hypercharge on a live client (what top parses do) once weave timing there is known, and model request latency in the fake client so the simulator can judge it.
+4. Model request latency (not just animation lock) in the fake client, and re-check the Wildfire placement on a live client once real weave timing is known.

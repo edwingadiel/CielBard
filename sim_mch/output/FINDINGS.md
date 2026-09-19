@@ -26,9 +26,21 @@ Full report: `calibration.md`. Source: `mch-analysis/output/summary.json` (fight
 - The engine's extra Hypercharges and Reassembles are real uses the parses lose to movement and mechanics; the offline engine never moves. Fewer Queen summons is the policy (summon near the cap); battery spent is the same.
 - Potions: 24 of 40 parses take the opener (or pre-pull) and 6:00, which is what the engine does; 9 take 2:00 and about 8:00 instead.
 
-### 0.2 One placement differs: Wildfire
+### 0.2 One placement differs: Wildfire (tested, default kept)
 
-Top players press Wildfire a median **1.58 s before** Hypercharge (the double weave ahead of it). The engine presses it about 0.6 s **after**. Both catch six weaponskills; the engine's order was chosen because the offline client showed the early slot dropping the sixth hit without a late weave. Worth revisiting on a live client, where the early placement puts Full Metal Field inside Wildfire.
+Across the 200 Wildfires in the 40 parses: **55%** go out one weaponskill before Hypercharge as a late weave (median 1.34 s after the previous weaponskill, usually with Full Metal Field as the weaponskill in between), **28%** right behind Hypercharge in the same weave window (what the engine does), 14% just ahead of Hypercharge in the same window. 94% catch six weaponskills whichever way.
+
+The first placement was added to the engine as `wildfirePlacement = "BEFORE"` (it keeps the last weave slot of the GCD free and presses Wildfire once 1.3 s or less of the GCD remains) and compared, 10% party buffs, target dying at the end, five fight lengths, eight seeds where there is jitter:
+
+| ping + jitter on every animation lock | AFTER: hits | BEFORE: hits | BEFORE vs AFTER |
+|---|---|---|---:|
+| 0 to 100 ms, no jitter | all 6 | all 6 | 0.000% |
+| 50 ms + 0-100 ms | all 6 | all 6 | 0.000% |
+| 100 ms + 0-150 ms | 6 in 98% | 6 in 55% | **-0.30%** |
+| 150 ms + 0-200 ms | 6 in 90% | 6 in 70% | +0.09% |
+| 200 ms + 0-250 ms | 6 in 85% | 6 in 76% | +0.81% |
+
+With clean timing the two are worth exactly the same: six hits is the cap either way, and both Wildfires land inside the party window. BEFORE's sixth weaponskill lands only about 0.2 s before Wildfire ends, against 1.2 s for AFTER, so moderate latency costs it hits first. The last two rows are a regime where weaves already clip the 1.5 s GCD and neither placement is healthy. **AFTER stays the default**; BEFORE is a button under *Rotation tuning*. Players likely prefer it for reasons the simulator does not price (it is the order The Balance's opener graphic shows, and it is easier to execute by hand than a double weave).
 
 ### 0.3 Fitted values (written to `sim_mch/data`)
 

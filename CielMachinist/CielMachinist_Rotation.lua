@@ -15,6 +15,8 @@ E.state = {
     weavesSinceGCD = 0,
     burstAt = 0,
     lastGCDID = 0,
+    wildfireAt = 0,
+    gcdsSinceWildfire = 99,
     overheatStacks = 0,
     comboStep = 0,
     comboAt = 0,
@@ -320,6 +322,8 @@ function E.ResetCombat(reason)
     s.weavesSinceGCD = 0
     s.burstAt = 0
     s.lastGCDID = 0
+    s.wildfireAt = 0
+    s.gcdsSinceWildfire = 99
     s.overheatStacks = 0
     s.comboStep = 0
     s.comboAt = 0
@@ -444,6 +448,8 @@ local function noteCast(actionID, ticks, observed)
     elseif actionID == A.Wildfire then
         noteBurst(ticks)
         noteProc("Wildfire", ticks)
+        s.wildfireAt = ticks
+        s.gcdsSinceWildfire = 0
     elseif actionID == A.Hypercharge then
         noteProc("Overheated", ticks)
         s.overheatStacks = 5
@@ -462,6 +468,7 @@ local function noteCast(actionID, ticks, observed)
     -- Reassemble is spent by the next weaponskill, except Full Metal Field,
     -- which is already a guaranteed critical direct hit and leaves it alone.
     if actionID ~= A.FullMetalField then clearProc("Reassembled") end
+    s.gcdsSinceWildfire = (s.gcdsSinceWildfire or 0) + 1
     if actionID == A.BlazingShot or actionID == A.HeatBlast or actionID == A.AutoCrossbow then
         s.overheatStacks = math.max(0, (s.overheatStacks or 0) - 1)
     end
@@ -744,6 +751,24 @@ function E.ToolsBlockHypercharge(lead)
     return false, nil
 end
 
+-- Weaponskills the GCD chain will press ahead of Blazing Shot inside `window`
+-- seconds: every tool that comes due, and a granted one still waiting.
+function E.ToolGCDsDue(window)
+    local count = 0
+    if E.AbilityEnabled("FullMetalField") and E.FullMetalPending() then count = count + 1 end
+    if E.AbilityEnabled("Excavator") and E.ExcavatorPending() then count = count + 1 end
+    if E.AbilityEnabled("AirAnchor") and airAnchorCooldown() <= window then count = count + 1 end
+    if E.AbilityEnabled("ChainSaw") and toolCooldown(A.ChainSaw) <= window then
+        count = count + (E.AbilityEnabled("Excavator") and 2 or 1)
+    end
+    if E.AbilityEnabled("Drill") then
+        local drill = drillState()
+        if drill.info and (drill.charges >= 1 or drill.remaining <= window) then count = count + 1 end
+        if not drill.info and toolCooldown(A.Drill) <= window then count = count + 1 end
+    end
+    return count
+end
+
 -- Context ------------------------------------------------------------------
 
 function E.BuildContext(target, gcdRemaining)
@@ -806,6 +831,10 @@ local function hyperchargedExpiring()
     return remaining > 0 and remaining <= 4
 end
 
+local function wildfireLeads()
+    return (E.config or D.Defaults).wildfirePlacement == "BEFORE"
+end
+
 -- The two-minute burst wants two Hypercharges: the free one Barrel Stabilizer
 -- grants and a heat-funded one right behind it (The Balance's static burst).
 -- Hardly any heat is generated inside the burst itself, so the second one has
@@ -835,10 +864,22 @@ function E.HyperchargeAllowed(ctx)
     if E.ToolsBlockHypercharge(tonumber(c.hyperchargeToolLeadSeconds) or 8) then return false end
 
     if wildfirePairingWanted(ctx) then
-        -- Wildfire follows Hypercharge in the next weave slot. When it is
-        -- nearly but not yet up, Hypercharge is kept for it.
         local wildfire = cooldownSeconds(action(A.Wildfire))
-        if wildfire <= 0.7 then return true, "Hypercharge for Wildfire" end
+        if wildfireLeads() then
+            -- Wildfire goes first and exactly one weaponskill separates them.
+            if E.WildfireActive() then
+                local elapsed = (now() - (E.state.wildfireAt or 0)) / 1000
+                if (E.state.gcdsSinceWildfire or 0) >= 1 or E.state.wildfireAt == 0 or elapsed >= 3.5 then
+                    return true, "Hypercharge inside Wildfire"
+                end
+                return false
+            end
+            if wildfire <= 0.7 and not ctx.terminal then return false end
+        elseif wildfire <= 0.7 then
+            -- Wildfire follows Hypercharge in the next weave slot.
+            return true, "Hypercharge for Wildfire"
+        end
+        -- Nearly but not yet up: Hypercharge is kept for it.
         if not ctx.terminal and c.resourcePooling and
             wildfire <= (tonumber(c.hyperchargeHoldForBurstSeconds) or 12) then
             return false
@@ -848,19 +889,30 @@ function E.HyperchargeAllowed(ctx)
     return true, "Hypercharge at " .. tostring(ctx.heat) .. " heat"
 end
 
--- Wildfire counts weaponskills landed in its ten seconds, so it goes out right
--- behind Hypercharge: five Blazing Shots plus the weaponskill after them make
--- six with more than a second to spare, which is the placement The Balance
--- calls the most ping-friendly. A window that is already mostly spent is left
--- alone in favour of the next Hypercharge.
-function E.WildfireAllowed(ctx)
+-- Wildfire counts weaponskills landed in its ten seconds. Two placements:
+--   AFTER  (default) right behind Hypercharge: five Blazing Shots plus the
+--          weaponskill after them make six with more than a second to spare,
+--          the placement The Balance calls the most ping-friendly.
+--   BEFORE one weaponskill ahead of Hypercharge, as a late weave: that
+--          weaponskill (usually Full Metal Field) plus five Blazing Shots.
+--          This is what most top parses do; the sixth hit lands about 0.2 s
+--          before Wildfire ends, so it depends on the late weave.
+-- A window that is already mostly spent is left for the next Hypercharge.
+function E.WildfireAllowed(ctx, ignoreTiming)
     local c = E.config
     if not E.AbilityEnabled("Wildfire") then return false end
     if ctx.ttk < (tonumber(c.wildfireMinimumTTK) or 0) then return false end
     if E.WildfireActive() then return false end
     if not E.AbilityEnabled("Hypercharge") or not overheatSpenderEnabled() then return true end
-    if not ctx.overheated then return false end
-    return ctx.terminal or (E.state.overheatStacks or 0) >= (tonumber(c.wildfireMinimumStacks) or 3)
+    if ctx.overheated then
+        return ctx.terminal or (E.state.overheatStacks or 0) >= (tonumber(c.wildfireMinimumStacks) or 3)
+    end
+    if not wildfireLeads() then return false end
+    if not ready(A.Hypercharge, Player.id) then return false end
+    local gcdRemaining = ctx.gcdRemaining or 0
+    if not ignoreTiming and gcdRemaining > (tonumber(c.wildfireLateWeaveSeconds) or 1.3) then return false end
+    -- At most one weaponskill may still stand between now and Blazing Shot.
+    return E.ToolGCDsDue((tonumber(c.hyperchargeToolLeadSeconds) or 8) + gcdRemaining) <= 1
 end
 
 -- GCD --------------------------------------------------------------------------------
@@ -1087,6 +1139,13 @@ function E.TryOGCD(ctx)
 
     local hypercharge, reason = E.HyperchargeAllowed(ctx)
     if hypercharge and E.TryCast(A.Hypercharge, target, reason) then return true end
+
+    -- A late-weaved Wildfire needs the last weave slot of this GCD kept free.
+    if wildfireLeads() and not ctx.overheated and s.weavesSinceGCD >= limit - 1 and
+        E.WildfireAllowed(ctx, true) then
+        s.lastDecision = "Keeping the last weave for Wildfire"
+        return false
+    end
 
     local reassemble, tool = E.ReassembleAllowed(ctx)
     if reassemble and E.TryCast(A.Reassemble, target, "Reassemble for " .. tostring(tool)) then return true end

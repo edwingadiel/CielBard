@@ -5,7 +5,7 @@ Experimental level-100 rotation modules for FFXIVMinion/MMOMinion. The project s
 ## Repository layout
 
 - `CielBard/` — installable Bard module (v0.5.2).
-- `CielMachinist/` — installable Machinist module (v0.2.0).
+- `CielMachinist/` — installable Machinist module (v0.2.1).
 - `sim/` — Bard training-dummy simulator that drives the shipped Bard Lua engine unmodified. Start with `sim/output/FINDINGS.md`.
 - `sim_mch/` — Machinist simulator that drives the shipped Machinist Lua engine unmodified. Start with `sim_mch/output/FINDINGS.md`.
 - `bard-analysis/` — sanitized FFLogs collection and analysis scripts plus generated summary reports.
@@ -17,7 +17,7 @@ Experimental level-100 rotation modules for FFXIVMinion/MMOMinion. The project s
 
 **CielBard 0.5.2** has been run through its ACR profile on a live training dummy and behaved correctly. It has not been validated in duties. Execution is disabled by default.
 
-**CielMachinist 0.2.0** is offline-tested only: mocked-runtime priority cases plus a simulator that checks the opener, the pre-pull and a six-minute fight against The Balance's level-100 rotation and sweeps the engine's settings. It still needs its first live dummy session; see `CielMachinist/README.md` for the checklist.
+**CielMachinist 0.2.1** is offline-tested only: mocked-runtime priority cases plus a simulator that checks the opener, the pre-pull and a six-minute fight against The Balance's level-100 rotation and sweeps the engine's settings. It still needs its first live dummy session; see `CielMachinist/README.md` for the checklist.
 
 Both modules keep the optimized setup as the zero-configuration experience. An opt-in advanced panel adds presets and per-ability Auto/Off controls; the engine recalculates holds, burst behavior, and fallback actions around the enabled set rather than assuming every button is available. They install side by side and share no globals or settings.
 

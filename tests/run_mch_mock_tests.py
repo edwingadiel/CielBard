@@ -399,6 +399,45 @@ ctx = E.BuildContext(target, 1.5)
 expect(ctx.overheated, "an accepted Hypercharge counts as Overheated before the status shows")
 expect(E.TryOGCD(ctx) and lastCastID() == A.Wildfire, "Wildfire shares Hypercharge's weave window")
 
+-- BEFORE placement: Wildfire one weaponskill ahead of Hypercharge, late-weaved.
+c = resetHarness()
+quietCooldowns()
+c.wildfirePlacement = "BEFORE"
+setCooldown(A.Wildfire, 0, 120)
+setReady(A.Wildfire) setReady(A.Hypercharge) setReady(A.DoubleCheck)
+setStatus(ST.FullMetalMachinist, 25)
+E.state.weavesSinceGCD = 0
+ctx = directContext()
+ctx.gcdRemaining = 1.9
+expect(not E.WildfireAllowed(ctx), "too early in the GCD for the late weave")
+expect(E.TryOGCD(ctx) and lastCastID() == A.DoubleCheck, "the first weave slot is still free for other oGCDs")
+E.state.weavesSinceGCD = 1
+expect(not E.TryOGCD(ctx) and lastCastID() == A.DoubleCheck, "the last weave slot is kept for Wildfire")
+ctx.gcdRemaining = 1.2
+expect(E.TryOGCD(ctx) and lastCastID() == A.Wildfire, "Wildfire goes out as the late weave")
+setCooldown(A.Wildfire, 119, 120)
+setReady(A.Wildfire, false)
+E.state.weavesSinceGCD = 0
+Player.buffs = {}
+expect(not E.HyperchargeAllowed(ctx), "Hypercharge waits for the weaponskill in between")
+Player.castinginfo = { lastcastid = A.FullMetalField, timesincecast = 100 }
+E.ObserveLastCast()
+expect(E.HyperchargeAllowed(ctx), "and follows it")
+-- Two weaponskills still due: Wildfire waits a GCD.
+c = resetHarness()
+quietCooldowns()
+c.wildfirePlacement = "BEFORE"
+setCooldown(A.Wildfire, 0, 120)
+setReady(A.Wildfire) setReady(A.Hypercharge)
+setStatus(ST.FullMetalMachinist, 25)
+setCharges(A.Drill, 1, 2, 20, 1)
+E.UpdateCharges()
+ctx = directContext()
+ctx.gcdRemaining = 1.0
+expect(not E.WildfireAllowed(ctx), "Drill and Full Metal Field both due: not yet")
+expect(not E.HyperchargeAllowed(ctx), "and Hypercharge does not jump the queue")
+Player.buffs = {}
+
 -- A mostly spent Overheated window is left for the next Hypercharge.
 c = resetHarness()
 quietCooldowns()
@@ -784,6 +823,16 @@ def run_timeline(verbose: bool = False) -> None:
         near = [battery for t, battery in fight.queens if mark - 6 <= t <= mark + 15]
         assert near and max(near) >= 90, f"no full-battery Queen at the {mark}s burst: {fight.queens}"
     print("six-minute fight ok")
+
+    # --- Wildfire one weaponskill before Hypercharge (opt-in) ------------------
+    before = simulate(FightConfig(seconds=360, engine={"wildfirePlacement": "BEFORE"}))
+    order = [e["name"] for e in before.log]
+    wildfire, fmf, hyper = order.index("Wildfire"), order.index("FullMetalField"), order.index("Hypercharge")
+    assert wildfire < fmf < hyper, "BEFORE must go Wildfire -> Full Metal Field -> Hypercharge"
+    assert before.wildfire_hits == [6, 6, 6], before.wildfire_hits
+    assert before.casts["BlazingShot"] == 5 * before.casts["Hypercharge"]
+    assert abs(before.dps / fight.dps - 1) < 0.002, "the two placements are worth the same with clean timing"
+    print("wildfire placement ok")
 
     # --- Heat pooling (off by default) buys a second Hypercharge in the burst --
     pooled = simulate(FightConfig(seconds=200, engine={"hyperchargeBurstHeat": 45}))

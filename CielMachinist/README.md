@@ -2,7 +2,7 @@
 
 Experimental level-100 Machinist rotation module for FFXIVMinion/MMOMinion, built on the same engine design as CielBard: a GCD-first priority engine with a central Auto/Off capability layer, kill-time awareness, a pending-request guard, and an ACR profile.
 
-Version 0.2.0 is **offline-tested only**. It has not been run in a live client yet. Execution is disabled by default.
+Version 0.2.1 is **offline-tested only**. It has not been run in a live client yet. Execution is disabled by default.
 
 ## Install
 
@@ -28,7 +28,7 @@ The GCD is held for up to 0.4 s when Air Anchor or Chain Saw is about to come ba
 **oGCD**, in order: opt-in utility, Barrel Stabilizer on cooldown (with the opt-in potion just before it), Wildfire, Hypercharge, Reassemble, Automaton Queen, Double Check / Checkmate.
 
 - **Hypercharge** is refused while Air Anchor or Chain Saw would come off cooldown within 8 s, while a Drill stack would cap, or while Excavator or Full Metal Field is waiting to be pressed. It is kept for a Wildfire that is less than 12 s away, and never allowed to let the Hypercharged buff expire.
-- **Wildfire** goes out in the weave slot right behind Hypercharge, so five Blazing Shots plus the next weaponskill make six hits with more than a second to spare. This is the placement The Balance calls the most ping-friendly.
+- **Wildfire** goes out in the weave slot right behind Hypercharge, so five Blazing Shots plus the next weaponskill make six hits with more than a second to spare. This is the placement The Balance calls the most ping-friendly. *Rotation tuning* also offers "One weaponskill before" Hypercharge, late-weaved, which is what most top parses do; the simulator prices the two identically with clean timing and finds the default more robust to latency.
 - **Pre-pull.** With *Require combat* off the engine pulls, so it presses Reassemble (and the potion, if potion use is on) immediately before its first weaponskill. With *Require combat* on, target the enemy and press **Pre-pull now** about five seconds before the pull: the engine presses Reassemble and the potion and then waits; it never pulls for you. Reassemble is only taken from a full stack, so an aborted pull costs nothing but the recharge.
 - **Reassemble** is only spent when Drill, Air Anchor, Chain Saw or Excavator is certain to be the next weaponskill. It is never put on Full Metal Field, Blazing Shot, Bioblaster or a filler. One charge is kept for the burst.
 - **Automaton Queen** is summoned near the battery cap off-cycle, takes a "last call" just before the pre-burst refill window, and inside the burst waits for Air Anchor / Chain Saw / Excavator to top her off (the even-minute Queen goes out at 90–100).
