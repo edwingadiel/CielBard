@@ -4,7 +4,9 @@
 
 CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMinion. It was designed from an event-level analysis of the top 40 Bard parses for Vamp Fatale rather than from a single copied parse. The core conclusion was that high-end Bard play is a state-driven priority problem: procs, gauge, songs, target count, cooldown availability, and expected kill time change the best next action.
 
-The current release is **v0.5.2**. It is an offline-tested, training-dummy MVP and has **not yet been validated in a live MMOMinion client**. Execution is disabled by default.
+The current release is **v0.5.2**. On 2026-09-19 the maintainer ran it through the ACR profile on a live training dummy and reported it working correctly; no session log was captured, so the per-item checklist under *Installation and first live test* (each advanced toggle, AoE thresholds, kill-time bands) is not individually signed off, and it has not been run in duties. Execution is disabled by default.
+
+A second module, **CielMachinist 0.2.0**, now lives in `CielMachinist/`; see *Machinist module* at the end of this document.
 
 v0.5.2 implements the engine half of the external v0.5.1 code review (`REVIEW_0.5.1.md`): Barrage-aware Shadowbite, multi-dot off by default, a lazy ACR stub that survives reverse load order, pending-request dedupe, a complete Optimized-preset reset, and `debug` off. See *Engine changes made from the 0.5.1 code review* below.
 
@@ -35,7 +37,7 @@ Implemented:
 
 Still required:
 
-- Live MMOMinion validation.
+- Duty-level live validation (a training-dummy ACR session passed on 2026-09-19).
 - Verification of Bard gauge-array indexes on the current client.
 - Confirmation of action readiness, transformed-action, status, and debuff fields.
 - Animation-lock and weave timing calibration.
@@ -679,3 +681,82 @@ on the old potency curve and have not been re-taken.
   papered over: the 150 ms ping oGCD reduction (arithmetically impossible below ~350 ms)
   and the potion landing before Raging Strikes on the opener (the song takes the first
   weave slot). See "Known mechanic mismatches" in `sim/README.md`.
+
+## Machinist module (CielMachinist 0.2.0)
+
+`CielMachinist/` is a second installable module for level-100 Machinist. The decisions that shaped it:
+
+- **Same repository, separate module.** It shares `tests/` and `tools/` with CielBard but installs on its own into `LuaMods/CielMachinist`.
+- **Copy and adapt, not a shared core.** The job-agnostic machinery (guards, `TryCast` and the pending-request guard, weave limits, the TTK estimator, AoE counting, potion handling, flat settings persistence, presets, the ACR profile and its lazy stub) was copied from the live-proven Bard files rather than extracted, so CielBard was not touched and each module stays standalone. Extract a shared core only once both are stable live; until then a fix in that machinery has to be made in both modules.
+- **Job guide and The Balance first.** Potencies and IDs were verified against the official job guide (Patch 7.5) and the xivapi Action/Status sheets; rotation rules follow The Balance's level-100 opener, static two-minute burst, FAQ and AoE tables. No parse study yet. Its simulator is the separate `sim_mch/` package (see below).
+
+### Files
+
+| Path | Purpose |
+|---|---|
+| `CielMachinist/CielMachinist_Data.lua` | Action/status IDs, defaults, capabilities, AoE thresholds, presets. |
+| `CielMachinist/CielMachinist_Rotation.lua` | Engine: state, procs, charges, combo, tools, Hypercharge/Wildfire, Queen, priorities. |
+| `CielMachinist/CielMachinist.lua` | Init, flat settings persistence, presets, window, ACR profile. |
+| `CielMachinist/acr/CielMachinist.lua` | Lazy ACR stub for `LuaMods/ACR/CombatRoutines/`. |
+| `sim_mch/` | Simulator: JSON data tables, `fakeclient.lua`, pricing, `run` and `sweep` CLIs, `output/FINDINGS.md`. |
+| `tests/run_mch_mock_tests.py` | Lua parsing, static priority cases, and the timeline test driven through `sim_mch`. |
+| `tests/test_mch_sim.py` | Simulator unit tests; ids in the JSON tables are checked against the shipped Lua. |
+| `tests/run_mch_gui_tests.py` | Settings proxy, presets, ACR profile and stub, and coexistence with CielBard in one Lua state. |
+
+### Engine design
+
+Globals are `CielMachinistData`, `CielMachinistEngine`, `CielMachinistUI`, `CielMachinistACRProfile`; settings live under `Settings.CielMachinist`. `E.AbilityEnabled(key)` is the single capability gate, exactly as in CielBard.
+
+**GCD order:** Blazing Shot / Auto Crossbow (only ready while Overheated) -> Air Anchor -> Drill at full charges -> Chain Saw -> Excavator -> Drill (or Bioblaster at 3+ targets with its DoT down) -> Full Metal Field -> short GCD hold for an imminent Air Anchor / Chain Saw (`toolHoldSeconds`, 0.4) -> Scattergun at 3+ -> Heated combo -> Split Shot fallback.
+
+**oGCD order:** utility -> potion + Barrel Stabilizer -> Wildfire -> Hypercharge -> Reassemble -> Queen Overdrive (terminal only) -> Automaton Queen -> Double Check / Checkmate.
+
+- **Burst anchor.** `nextBurst` is Barrel Stabilizer's cooldown (Wildfire's only when Barrel Stabilizer is Off). Wildfire trails the anchor by about thirteen seconds in the opener and therefore in every burst after it; using the maximum of the two, as CielBard does for its buffs, made every pre-burst hold thirteen seconds late.
+- **Hypercharge** (`E.HyperchargeAllowed`) is blocked by `E.ToolsBlockHypercharge(8)`: Air Anchor or Chain Saw due inside the Overheated window, a Drill stack that would cap, or a pending Excavator / Full Metal Field. It is held when Wildfire is within `hyperchargeHoldForBurstSeconds` (12) but not yet up, and every hold is bypassed when the Hypercharged buff has 4 s or less left.
+- **Wildfire** (`E.WildfireAllowed`) goes out directly behind Hypercharge and only into a window with at least `wildfireMinimumStacks` (3) Blazing Shots left. The first design weaved it one weaponskill *ahead* of Hypercharge, as in The Balance's standard opener; the timeline test measured 5 hits instead of 6 because the early weave slot left the fifth Blazing Shot 0.4 s outside the window. Hypercharge -> Wildfire gives six hits with 1.2 s of slack and is the placement The Balance calls the most ping-friendly.
+- **Weave limit** follows the last weaponskill, not the Overheated status: one weave after Blazing Shot / Heat Blast / Auto Crossbow, `maxWeaves` otherwise, so Hypercharge and Wildfire can share the 2.5 s window.
+- **Procs** (Overheated, Full Metal Machinist, Excavator Ready, Reassembled, Wildfire) use one helper, `procActive`: the live status wins; a timer started by the accepted or observed granting cast covers builds that expose the status late or not at all; once the status has been seen it is authoritative; the consuming cast clears the timer. Overheated additionally ends after five observed 1.5 s weaponskills.
+- **Charges** (`chargeState`) generalises CielBard's Heartbreak model to Drill (2), Reassemble (2), Double Check (3) and Checkmate (3): `cdmax` = recast x max, `cd` elapsed, count = floor(cd / recast). `chargesAfterSpending` projects the stack at burst time for the Reassemble pool.
+- **Combo** (`E.NextComboStep`): a highlighted Clean/Slug Shot first, then `Player.lastcomboid` / `Player.combotimeremain` (the fields FFXIVMinion's SkillMgr reads), then a local tracker fed by observed casts.
+- **Reassemble** only when `E.NextTool` says a tool will be off its recast at least 0.2 s before the GCD is. Without that margin the timeline test caught it landing on Heated Slug Shot.
+- **Automaton Queen** (`E.QueenAllowed`): potency is linear in battery, so the policy only avoids overcap and arrives at the burst full. Off-cycle at `queenBatteryOffcycle` (90); "last call" at any legal battery when `nextBurst` is within `queenRefillSeconds + queenLastCallSeconds` (42 + 10); kept inside the refill window unless full; inside the burst she waits up to `queenTopOffSeconds` (5.5) for a +20 tool that still fits. `E.GetBattery` reads at least 50 whenever the summon is ready, so a wrong gauge index cannot silence her.
+
+### Added in 0.2.0
+
+- **Pre-pull** (`E.TryPrepull`, `E.ArmPrepull`, settings `prepull`, `potionPrepull`). There is no countdown to read, so it runs only when the engine itself pulls (`requireCombat` off: Reassemble, potion, then the first weaponskill) or when the user arms it from the window's **Pre-pull now** button while waiting for someone else's pull (Reassemble and potion only; the engine never pulls in that mode, and the arm lapses after 10 s or on entering combat). Reassemble is only taken from a full stack.
+- **Heat pooling** (`E.HeatPooledForBurst`, `hyperchargeBurstHeat`, `heatPerSecond`): an off-cycle, heat-funded Hypercharge is refused when `heat - 50 + heatPerSecond x nextBurst` would fall short of the target. Never applied to the free Hypercharge, inside the burst, in the terminal band, at a full gauge, or when the gauge reads under 50 while Hypercharge is ready (a miscalibrated index must not hold forever). **Ships Off (0)** because `sim_mch` measures 45 at -0.07% to -0.24% on average: the second Hypercharge starts about 0:23 into the burst, after a 20 s party window has closed, and banked heat may never be spent. Full table in `sim_mch/output/FINDINGS.md`.
+- **Reassemble prediction** counts on Air Anchor and Chain Saw up to `toolHoldSeconds` after the GCD, because the GCD is held for them. Without that, a tool falling exactly on the GCD boundary was not seen and Reassemble sat capped for 30 s.
+- **`sim_mch/`**, a separate simulator package. `sim/` was not extended because its core is songs, Repertoire and DoTs and its tests pin the Bard engine by hash. The fake client is Lua (`sim_mch/fakeclient.lua`) and data-driven from JSON; Python prices the cast log afterwards. Machinist has no random procs, so one fight per configuration gives exact differences in expected damage. The sweeps in FINDINGS.md confirm every shipped default as the best value tested (`toolHoldSeconds` 0.4 is worth +0.34%, holding Hypercharge for Wildfire +0.32%, summoning the Queen near the cap +0.30%).
+- The fake client's clock starts at 100 s, not 0: `E.RefreshPotion` rate-limits its inventory scan against `Now()`, and at a zero clock the first five seconds never scanned, which hid the potion from the pre-pull.
+
+### Calibration against real parses (2026-09-19)
+
+`mch-analysis/collect.py` pulled the top 40 Machinist parses for Vamp Fatale and `sim_mch.calibrate` re-simulated each at its own length. The engine's weaponskill rate is within 0.6% of the top 10, every tool and two-minute cooldown within 0.7%, and **its opener is the most common top-10 opener, weaponskill for weaponskill**. The fitted scalar is 111.85 with a 0.81% mean residual, and the engine lands 1.20% under the top-10 mean. The Queen's hit timeline is now measured rather than assumed. The one placement that differs: 55% of top-parse Wildfires go out one weaponskill *before* Hypercharge, the engine's 0.6 s after. That placement was added in 0.2.1 as `wildfirePlacement = "BEFORE"` and measured: identical damage with clean timing, but its sixth hit has 0.2 s of slack against 1.2 s, so at 100 ms ping plus jitter it drops to five hits 45% of the time (-0.30%). AFTER stays the default. Details in `sim_mch/output/FINDINGS.md` section 0 and `sim_mch/output/calibration.md`.
+
+### What the timeline test shows
+
+`python tests/run_mch_mock_tests.py -v` prints it. With shipped defaults on the fake client (2.50 GCD, 0.6 s animation lock, no latency):
+
+- Opener: Air Anchor [Barrel Stabilizer, Reassemble] Drill [DC, CM] Chain Saw [DC, CM] Excavator [Reassemble, Queen at 60] Drill [DC, CM] Full Metal Field [Hypercharge, Wildfire] Blazing Shot x5 with one weave each, Drill. This is The Balance's standard opener with Wildfire moved behind Hypercharge and the first Reassemble moved from pre-pull to the first weave.
+- Six minutes: Wildfire 6/6/6 hits, 50 Blazing Shots in 10 Hypercharges, 0 heat and 0 battery wasted, no broken combo, GCD and Air Anchor never idle, never more than two weaves (one after Blazing Shot), Queens at 60 / 90 / 90 / 90 / 50 / 100 / 100.
+
+The fake client enforces rules and logs casts; `sim_mch/core.py` prices the log (uncalibrated). Request latency is not modelled.
+
+### Unverified on a live client
+
+Everything in CielBard's *Important implementation assumptions* list, plus:
+
+- `Player.gauge[1]` = Heat and `[2]` = Battery (from FFXIVMinion's bundled `Machinist_SHB.lua`, which predates Dawntrail).
+- `Player.lastcomboid` / `combotimeremain` values for the Heated combo, and whether `highlighted` is set on combo-ready actions.
+- Whether Drill, Air Anchor and Chain Saw report their **own** recast in `cd`/`cdmax` (assumed) rather than the shared GCD group, and whether Drill's two charges follow the `cdmax = recast x charges` layout Heartbreak Shot does.
+- Whether a Blazing Shot shortens the combo filler's reported `cdmax` to 1.5 s; `E.GCDRemaining` reads the GCD from Heated Split Shot.
+- How replaced actions (Hot Shot, Gauss Round, Ricochet, Heat Blast, Split Shot) report at level 100. The engine always tries the upgraded id first and never reads a replaced action's cooldown unless the upgrade is unusable.
+- Status ids 851, 2688, 3864, 3865, 3866, 1946, 1866 appearing in `Player.buffs` / `target.buffs` with `ownerid` set.
+- Whether Automaton Queen reports not-ready while a Queen is active.
+
+### Next steps for Machinist
+
+1. First live dummy session with `debug` on, following `CielMachinist/README.md`; fix API mismatches before anything else.
+2. Revisit heat pooling once a live log shows where party buffs actually sit relative to the engine's burst; pulling Wildfire earlier would also change the answer.
+3. Flamethrower, Dismantle / Tactician timing, Head Graze.
+4. Model request latency (not just animation lock) in the fake client, and re-check the Wildfire placement on a live client once real weave timing is known.

@@ -1,0 +1,6 @@
+[Module]
+Name=CielMachinist
+Dependencies=minionlib,FFXIVMINION
+Version=0.2.1
+Files=CielMachinist_Data.lua,CielMachinist_Rotation.lua,CielMachinist.lua
+Enabled=1

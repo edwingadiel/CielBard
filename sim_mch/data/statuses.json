@@ -1,0 +1,11 @@
+{
+  "_notes": "xivapi Status sheet ids. `on`: who carries it.",
+  "Reassembled":        { "id": 851,  "on": "player" },
+  "Overheated":         { "id": 2688, "on": "player", "duration_s": 10, "stacks": 5 },
+  "Hypercharged":       { "id": 3864, "on": "player" },
+  "ExcavatorReady":     { "id": 3865, "on": "player" },
+  "FullMetalMachinist": { "id": 3866, "on": "player" },
+  "WildfireSelf":       { "id": 1946, "on": "player", "duration_s": 10 },
+  "Bioblaster":         { "id": 1866, "on": "target" },
+  "Medicated":          { "id": 49,   "on": "player", "duration_s": 30 }
+}
