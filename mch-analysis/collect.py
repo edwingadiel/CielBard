@@ -31,9 +31,9 @@ API_URL = "https://www.fflogs.com/api/v2/client"
 HERE = Path(__file__).resolve().parent
 
 RANKINGS_QUERY = """
-query Rankings($encounter: Int!, $page: Int!) {
+query Rankings($encounter: Int!, $page: Int!, $spec: String!) {
   worldData { encounter(id: $encounter) { name
-    characterRankings(className: "Global", specName: "Machinist", metric: dps, page: $page) } }
+    characterRankings(className: "Global", specName: $spec, metric: dps, page: $page) } }
 }
 """
 
@@ -103,23 +103,23 @@ class FFLogs:
         return out
 
 
-def resolve_actor(actors: List[dict], friendly: Iterable[int], name: str) -> dict:
+def resolve_actor(actors: List[dict], friendly: Iterable[int], name: str, spec: str = "Machinist") -> dict:
     friendly = set(friendly)
-    jobs = [a for a in actors if a.get("id") in friendly and a.get("subType") == "Machinist"]
+    jobs = [a for a in actors if a.get("id") in friendly and a.get("subType") == spec]
     exact = [a for a in jobs if a.get("name") == name]
     if len(exact) == 1:
         return exact[0]
     if len(jobs) == 1:
         return jobs[0]
-    raise RuntimeError(f"could not resolve a unique Machinist among {len(jobs)} candidates")
+    raise RuntimeError(f"could not resolve a unique {spec} among {len(jobs)} candidates")
 
 
-def collect_one(api: FFLogs, rank: int, ranking: Dict[str, Any]) -> Dict[str, Any]:
+def collect_one(api: FFLogs, rank: int, ranking: Dict[str, Any], spec: str = "Machinist") -> Dict[str, Any]:
     code, fight_id = ranking["report"]["code"], ranking["report"]["fightID"]
     node = api.query(FIGHT_QUERY, {"code": code, "fightIDs": [fight_id]})["reportData"]["report"]
     fight = node["fights"][0]
     actors = node["masterData"]["actors"]
-    actor = resolve_actor(actors, fight["friendlyPlayers"], ranking["name"])
+    actor = resolve_actor(actors, fight["friendlyPlayers"], ranking["name"], spec)
     pets = [a for a in actors if a.get("petOwner") == actor["id"]]
     start, end = fight["startTime"], fight["endTime"]
     casts = api.events(code, fight_id, actor["id"], "Casts", start, end)
@@ -224,6 +224,42 @@ def summarise(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def fetch_rankings(api: FFLogs, encounter: int, spec: str, top: int) -> List[dict]:
+    rankings: List[dict] = []
+    page = 1
+    while len(rankings) < top:
+        node = api.query(RANKINGS_QUERY, {"encounter": encounter, "page": page, "spec": spec})
+        block = node["worldData"]["encounter"]["characterRankings"]
+        rankings += block.get("rankings", [])
+        if not block.get("hasMorePages"):
+            break
+        page += 1
+    return rankings[:top]
+
+
+def collect_all(spec: str, encounter: int, top: int, events_dir: Path, errors_path: Path) -> None:
+    """Cache the raw events of the top `top` parses of `spec`. Shared by every job's study."""
+    cid, secret = os.environ.get("FFLOGS_CLIENT_ID"), os.environ.get("FFLOGS_CLIENT_SECRET")
+    if not cid or not secret:
+        raise SystemExit("Set FFLOGS_CLIENT_ID and FFLOGS_CLIENT_SECRET in the environment.")
+    api = FFLogs(cid, secret)
+    errors = []
+    for rank, ranking in enumerate(fetch_rankings(api, encounter, spec, top), start=1):
+        path = events_dir / f"rank-{rank:02d}.json"
+        if path.exists() and json.loads(path.read_text(encoding="utf-8")).get("casts"):
+            print(f"[{rank}/{top}] cached")
+            continue
+        try:
+            raw = collect_one(api, rank, ranking, spec)
+            path.write_text(json.dumps(raw, separators=(",", ":")), encoding="utf-8")
+            print(f"[{rank}/{top}] collected", flush=True)
+        except Exception as exc:  # one private or malformed log must not stop the run
+            errors.append({"rank": rank, "error": str(exc)})
+            print(f"[{rank}/{top}] failed: {exc}", flush=True)
+    if errors:
+        errors_path.write_text(json.dumps(errors, indent=2), encoding="utf-8")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--encounter", type=int, default=101, help="FFLogs encounter id (101 = Vamp Fatale)")
@@ -235,34 +271,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     events_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.summarise_only:
-        cid, secret = os.environ.get("FFLOGS_CLIENT_ID"), os.environ.get("FFLOGS_CLIENT_SECRET")
-        if not cid or not secret:
-            raise SystemExit("Set FFLOGS_CLIENT_ID and FFLOGS_CLIENT_SECRET in the environment.")
-        api = FFLogs(cid, secret)
-        rankings: List[dict] = []
-        page = 1
-        while len(rankings) < args.top:
-            node = api.query(RANKINGS_QUERY, {"encounter": args.encounter, "page": page})
-            block = node["worldData"]["encounter"]["characterRankings"]
-            rankings += block.get("rankings", [])
-            if not block.get("hasMorePages"):
-                break
-            page += 1
-        errors = []
-        for rank, ranking in enumerate(rankings[:args.top], start=1):
-            path = events_dir / f"rank-{rank:02d}.json"
-            if path.exists() and json.loads(path.read_text(encoding="utf-8")).get("casts"):
-                print(f"[{rank}/{args.top}] cached")
-                continue
-            try:
-                raw = collect_one(api, rank, ranking)
-                path.write_text(json.dumps(raw, separators=(",", ":")), encoding="utf-8")
-                print(f"[{rank}/{args.top}] collected", flush=True)
-            except Exception as exc:  # one private or malformed log must not stop the run
-                errors.append({"rank": rank, "error": str(exc)})
-                print(f"[{rank}/{args.top}] failed: {exc}", flush=True)
-        if errors:
-            (args.output / "errors.json").write_text(json.dumps(errors, indent=2), encoding="utf-8")
+        collect_all("Machinist", args.encounter, args.top, events_dir, args.output / "errors.json")
 
     rows = [summarise(json.loads(path.read_text(encoding="utf-8"))) for path in sorted(events_dir.glob("rank-*.json"))]
     if not rows:

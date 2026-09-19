@@ -1,0 +1,50 @@
+{
+  "_notes": "Rules that are not per-action. UNVERIFIED marks a simulator assumption rather than a sourced fact.",
+  "job_id": 38,
+  "gcd_base_s": 2.5,
+  "anim_lock_s": 0.6,
+  "potion_anim_lock_s": 1.1,
+  "gcd_request_window_s": 0.06,
+  "esprit_max": 100,
+  "feather_max": 4,
+  "combo_window_s": 30,
+  "dance_window_s": 15,
+  "standard_finish": {
+    "duration_s": 60,
+    "esprit_status_s": 60,
+    "last_dance_ready_s": 30,
+    "damage_mult_by_steps": [
+      1.0,
+      1.02,
+      1.05
+    ]
+  },
+  "technical_finish": {
+    "duration_s": 20.5,
+    "esprit_status_s": 20,
+    "flourishing_finish_s": 30,
+    "dance_of_the_dawn_ready_s": 30,
+    "damage_mult_by_steps": [
+      1.0,
+      1.01,
+      1.02,
+      1.03,
+      1.05
+    ]
+  },
+  "devilment": {
+    "crit_rate_bonus": 0.2,
+    "dh_rate_bonus": 0.2
+  },
+  "_ally_esprit_note": "A partner's or party member's weaponskill or spell has a chance to give the Dancer 10 Esprit. The official text only says the chance differs by job; about 20% is the community estimate (UNVERIFIED) and sim_dnc.calibrate fits it to the parses' Saber Dance rate. Allies are modelled as pressing one GCD every ally_gcd_s.",
+  "ally_esprit": {
+    "amount": 10,
+    "chance": 0.212,
+    "ally_gcd_s": 2.5
+  },
+  "potion": {
+    "hqid": 1049235,
+    "cooldown_s": 270,
+    "duration_s": 30
+  }
+}

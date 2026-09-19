@@ -25,3 +25,7 @@ sim/output/batch.json
 # Machinist parse study: raw FFLogs event streams are cached locally only.
 mch-analysis/output/events/
 mch-analysis/output/errors.json
+
+# Dancer parse study: raw FFLogs event streams are cached locally only.
+dnc-analysis/output/events/
+dnc-analysis/output/errors.json
