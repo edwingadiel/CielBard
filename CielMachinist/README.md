@@ -2,7 +2,7 @@
 
 Experimental level-100 Machinist rotation module for FFXIVMinion/MMOMinion, built on the same engine design as CielBard: a GCD-first priority engine with a central Auto/Off capability layer, kill-time awareness, a pending-request guard, and an ACR profile.
 
-Version 0.2.1 is **offline-tested only**. It has not been run in a live client yet. Execution is disabled by default.
+Version 0.2.1 has been run on a live training dummy (2026-09-19) and behaved correctly; it has not been validated in duties. Execution is disabled by default.
 
 ## Install
 
