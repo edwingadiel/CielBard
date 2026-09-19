@@ -4,7 +4,7 @@
   "crit_mult": 1.6,
   "dh_rate": 0.2282,
   "dh_mult": 1.25,
-  "potency_to_damage": 117.5858,
+  "potency_to_damage": 117.762,
   "damage_variance": 0.05,
   "potion_damage_mult": 1.08,
   "auto_attack_share": 0.09947

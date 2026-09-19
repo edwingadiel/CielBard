@@ -39,7 +39,7 @@
   "_ally_esprit_note": "A partner's or party member's weaponskill or spell has a chance to give the Dancer 10 Esprit. The official text only says the chance differs by job; about 20% is the community estimate (UNVERIFIED) and sim_dnc.calibrate fits it to the parses' Saber Dance rate. Allies are modelled as pressing one GCD every ally_gcd_s.",
   "ally_esprit": {
     "amount": 10,
-    "chance": 0.212,
+    "chance": 0.205,
     "ally_gcd_s": 2.5
   },
   "potion": {
