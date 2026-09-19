@@ -788,7 +788,7 @@ Two rules came straight out of the offline tests: a kept Last Dance has to outla
 
 `sim_dnc/` mirrors `sim_mch/` but is seeded, because Dancer is random; `sweep` runs every point on the same seeds and reports the paired difference with its standard error. The fake client publishes the step sequence through the gauge in the layout above, so the engine's gauge reading is exercised end to end (against the layout it assumes).
 
-Calibrated against the top 40 Vamp Fatale Dancer parses: the fitted ally Esprit chance is **0.212** (the community's estimate is about 0.20), the damage scalar fits with under 1% mean error, auto attacks are 10% of a Dancer's damage, and the engine's opener matches the parses weaponskill for weaponskill up to the first Finishing Move. Details and the sweeps behind the shipped defaults are in `sim_dnc/output/FINDINGS.md` and `calibration.md`.
+Calibrated against the top 40 Vamp Fatale Dancer parses: the fitted ally Esprit chance is **0.205** (the community's estimate is about 0.20), the damage scalar fits with under 1% mean error, auto attacks are 10% of a Dancer's damage, and the engine's opener matches the parses weaponskill for weaponskill up to the first Finishing Move. Details and the sweeps behind the shipped defaults are in `sim_dnc/output/FINDINGS.md` and `calibration.md`.
 
 ### Unverified on a live client
 

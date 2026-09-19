@@ -22,7 +22,7 @@ python -m sim_dnc.calibrate --out sim_dnc/output/calibration.md --write       # 
 
 ## Limits
 
-- **Esprit from allies is one fitted number.** The game only says an ally's chance to feed Esprit "differs according to job". `calibrate` fits a single chance (0.212; the community's estimate is about 0.20) so the simulated Saber Dance rate matches the top parses, with every ally pressing one GCD every 2.5 s.
+- **Esprit from allies is one fitted number.** The game only says an ally's chance to feed Esprit "differs according to job". `calibrate` fits a single chance (0.205; the community's estimate is about 0.20) so the simulated Saber Dance rate matches the top parses, with every ally pressing one GCD every 2.5 s.
 - `potency_to_damage` is one fitted scalar; it absorbs gear, party buffs received and real downtime. Judge a rotation from cast rates, not from DPS. Auto attacks (10% of a Dancer's damage) are not modelled.
 - The partner's share of Standard Finish and Devilment is not counted: it is the same whatever the engine does.
 - No movement or downtime, no En Avant or Improvisation, and extra targets all stand inside the five-yalm circle and never die.
