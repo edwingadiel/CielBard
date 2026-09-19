@@ -1,0 +1,23 @@
+{
+  "_notes": "xivapi Status sheet ids. EspritStandard / EspritTechnical are the statuses that let weaponskills generate Esprit; the engine never reads them.",
+  "StandardStep":        { "id": 1818 },
+  "TechnicalStep":       { "id": 1819 },
+  "ThreefoldFanDance":   { "id": 1820 },
+  "StandardFinish":      { "id": 1821 },
+  "TechnicalFinish":     { "id": 1822 },
+  "ClosedPosition":      { "id": 1823 },
+  "Devilment":           { "id": 1825 },
+  "EspritStandard":      { "id": 1847 },
+  "EspritTechnical":     { "id": 1848 },
+  "SilkenSymmetry":      { "id": 2693 },
+  "SilkenFlow":          { "id": 2694 },
+  "FlourishingFinish":   { "id": 2698 },
+  "FourfoldFanDance":    { "id": 2699 },
+  "FlourishingStarfall": { "id": 2700 },
+  "FlourishingSymmetry": { "id": 3017 },
+  "FlourishingFlow":     { "id": 3018 },
+  "LastDanceReady":      { "id": 3867 },
+  "FinishingMoveReady":  { "id": 3868 },
+  "DanceOfTheDawnReady": { "id": 3869 },
+  "Medicated":           { "id": 49 }
+}

@@ -6,7 +6,7 @@ CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMi
 
 The current release is **v0.5.2**. On 2026-09-19 the maintainer ran it through the ACR profile on a live training dummy and reported it working correctly; no session log was captured, so the per-item checklist under *Installation and first live test* (each advanced toggle, AoE thresholds, kill-time bands) is not individually signed off, and it has not been run in duties. Execution is disabled by default.
 
-A second module, **CielMachinist 0.2.0**, now lives in `CielMachinist/`; see *Machinist module* at the end of this document.
+Two more modules follow the same design: **CielMachinist 0.2.1** (`CielMachinist/`, run successfully on a live training dummy on 2026-09-19) and **CielDancer 0.1.0** (`CielDancer/`, offline-tested only). See *Machinist module* and *Dancer module* at the end of this document.
 
 v0.5.2 implements the engine half of the external v0.5.1 code review (`REVIEW_0.5.1.md`): Barrage-aware Shadowbite, multi-dot off by default, a lazy ACR stub that survives reverse load order, pending-request dedupe, a complete Optimized-preset reset, and `debug` off. See *Engine changes made from the 0.5.1 code review* below.
 
@@ -760,3 +760,42 @@ Everything in CielBard's *Important implementation assumptions* list, plus:
 2. Revisit heat pooling once a live log shows where party buffs actually sit relative to the engine's burst; pulling Wildfire earlier would also change the answer.
 3. Flamethrower, Dismantle / Tactician timing, Head Graze.
 4. Model request latency (not just animation lock) in the fake client, and re-check the Wildfire placement on a live client once real weave timing is known.
+
+## Dancer module (CielDancer 0.1.0)
+
+Built the same way as CielMachinist: same repository, copy-and-adapt engine, job guide plus The Balance, its own simulator (`sim_dnc/`), and a calibration against the top 40 FFLogs parses (`dnc-analysis/`). The job-agnostic machinery (guards, `TryCast` and the pending-request guard, `procActive`, the TTK estimator, potion handling, flat settings persistence, presets, the ACR profile and lazy stub) is byte-for-byte the Machinist code, which has now run live on two jobs.
+
+### What is different about Dancer
+
+- **The dance.** While the Standard Step or Technical Step status is up, `E.TryDance` owns the GCD: nothing else is pressed and `E.TryOGCD` returns at once. `E.NextStep` reads the sequence from `Player.gauge` slots 3-6 (1 Emboite, 2 Entrechat, 3 Jete, 4 Pirouette) with slot 7 counting the steps done; that layout comes from the Dancer profile bundled with FFXIVMinion (`LuaMods/ffxivminion/MadaoFiles/CombatProfiles/Dancer/Dancer_Sample.lua`), which also showed that the finishes are cast by their step-count ids (16192 Double Standard Finish, 16196 Quadruple Technical Finish). The fallback is the hotbar highlight on the correct step; with neither, the engine waits rather than guess, because a wrong step costs a second and changes nothing. All indexes are editable in the window.
+- **Finishes are circles around the dancer** (15 yalms). The finish is held for a target that is further away until the dance has two seconds left. Out of combat it is held until combat starts unless the engine is the one pulling.
+- **AoE is counted around the player**, not the target: Windmill and friends are five-yalm circles on the dancer, so `E.CountEnemiesNear` uses `entity.distance2d`.
+- **Randomness.** Procs are read through `IsReady` at GCD time, exactly as CielBard reads Refulgent Arrow, so no proc is ever predicted. Esprit and feathers come from the gauge (slots 2 and 1) with the usual safety: Esprit reads at least 50 whenever Saber Dance is ready, and a feather count of zero while Fan Dance is ready is treated as a miscalibrated index and spent.
+- **Weaves:** none inside a dance, one behind a finish or a Step press (1.5 s), `maxWeaves` otherwise.
+- **Closed Position is not automated.** The window warns when the player is in a party without a partner.
+
+### Priorities
+
+Burst (Technical Finish or Devilment up): lapsing Starfall Dance / Last Dance / proc -> Saber Dance from `burstSaberOvercapEsprit` -> Tillana (only at or under `tillanaMaxEsprit`, or when about to lapse) -> Dance of the Dawn -> Last Dance -> Finishing Move -> Saber Dance -> Starfall Dance -> procs -> combo. This is the order 24 of the first 60 bursts in the parses follow exactly, and the rest permute only its last three.
+
+Outside the burst, The Balance's list: lapsing Last Dance / Fountainfall / Reverse Cascade -> leftover Starfall Dance / Tillana -> Saber Dance from `saberOvercapEsprit` (85) -> Last Dance if a dance is about to overwrite it -> Finishing Move -> Standard Step -> Saber Dance from `saberOffcycleEsprit` (80) -> Last Dance (unless kept for the burst) -> Fountainfall -> Reverse Cascade -> Fountain -> Cascade.
+
+oGCDs: utility -> Devilment directly behind Technical Finish -> potion in the last weave before Technical Step -> Fan Dance III -> Fan Dance IV (kept for a burst it will survive into) -> Flourish (never over a waiting Threefold / Fourfold, kept for an imminent burst) -> Fan Dance at four feathers, or every feather inside the burst.
+
+Two rules came straight out of the offline tests: a kept Last Dance has to outlast the wait **plus the seven-second Technical dance plus the two weaponskills that open the burst** (`lastDanceBurstLeadSeconds`, 15), or it lapses mid-dance; and the two combos break each other, so an open Windmill combo is finished with Bladeshower and an open Cascade combo with Fountain unless three or more targets make dropping it worthwhile.
+
+### Simulator and calibration
+
+`sim_dnc/` mirrors `sim_mch/` but is seeded, because Dancer is random; `sweep` runs every point on the same seeds and reports the paired difference with its standard error. The fake client publishes the step sequence through the gauge in the layout above, so the engine's gauge reading is exercised end to end (against the layout it assumes).
+
+Calibrated against the top 40 Vamp Fatale Dancer parses: the fitted ally Esprit chance is **0.205** (the community's estimate is about 0.20), the damage scalar fits with under 1% mean error, auto attacks are 10% of a Dancer's damage, and the engine's opener matches the parses weaponskill for weaponskill up to the first Finishing Move. Details and the sweeps behind the shipped defaults are in `sim_dnc/output/FINDINGS.md` and `calibration.md`.
+
+### Unverified on a live client
+
+Everything in the Bard and Machinist lists, plus:
+
+- The gauge layout above on the current client (the bundled sample profile predates Dawntrail). This is the one assumption that would stop the module from dancing at all; the fallback is the step highlight, and the window shows both.
+- Whether the step actions and the finishes report `IsReady` only for the correct step / step count, and whether the finish ids 16192 / 16196 are what the live client wants (the engine falls back through 16191, 16003 and 16195 ... 16004).
+- Whether Cascade's `cd` / `cdmax` follow the 1.0 s and 1.5 s dance recasts; `E.GCDRemaining` reads the GCD from Cascade.
+- Status ids 1818, 1819, 1821, 1822, 1825, 2693, 2694, 2698, 2699, 2700, 3017, 3018, 3867, 3868, 3869 in `Player.buffs`.
+- `entity.distance2d` for enemies returned by `EntityList`, used for the AoE count.
