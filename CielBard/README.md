@@ -90,7 +90,7 @@ Run only one of them. Both are designed to simulate low ping without sending act
 - Potion use is opt-in. It relies on FFXIVMinion's `GetItem` helper (falling back to a scan of the four inventory bags) and the item's `IsReady`/`Cast` methods; validate on a training dummy that the potion is consumed once and that the weave count stays correct.
 - Multi-dot is off by default and only considers enemies that MMOMinion reports as in combat. Whether `entity.incombat` and the `incombat` EntityList filter behave as expected in every duty must be confirmed live. Codas are tracked locally from observed song casts rather than read from the gauge.
 - Utility automation is opt-in. Warden's Paean debuff detection and the defensive HP thresholds require live-client validation before duty use.
-- This version has passed offline Lua parsing and MMOMinion API/reference checks, but has not yet been validated inside a live MMOMinion client. Treat it as a testable MVP, begin on a training dummy, and keep execution disabled until gauge diagnostics and song detection are correct.
+- This version has passed the offline suites and has been run through its ACR profile on a live training dummy by the maintainer. It has not been validated in duties. Begin on a training dummy, and keep execution disabled until gauge diagnostics and song detection look correct on your client.
 - Third-party automation may violate game rules or account terms. Use at your own risk.
 
 ## Sources

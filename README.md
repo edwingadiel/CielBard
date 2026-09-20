@@ -14,6 +14,7 @@ Experimental level-100 rotation modules for FFXIVMinion/MMOMinion. The project s
 - `bard-analysis/` — sanitized FFLogs collection and analysis scripts plus generated summary reports.
 - `tests/` — offline suites for both modules and the simulator.
 - `tools/CielProbe/` — read-only MMOMinion API dumper and cast-timing logger.
+- `TESTERS.md` — install and first-run guide for people trying the modules.
 - `HANDOFF.md` — architecture, decisions, and the development log.
 
 ## Current status
