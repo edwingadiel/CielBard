@@ -6,7 +6,7 @@ CielBard is an experimental level-100 Bard rotation module for FFXIVMinion/MMOMi
 
 The current release is **v0.5.2**. On 2026-09-19 the maintainer ran it through the ACR profile on a live training dummy and reported it working correctly; no session log was captured, so the per-item checklist under *Installation and first live test* (each advanced toggle, AoE thresholds, kill-time bands) is not individually signed off, and it has not been run in duties. Execution is disabled by default.
 
-Two more modules follow the same design: **CielMachinist 0.2.1** (`CielMachinist/`, run successfully on a live training dummy on 2026-09-19) and **CielDancer 0.1.0** (`CielDancer/`, offline-tested only). See *Machinist module* and *Dancer module* at the end of this document.
+Two more modules follow the same design: **CielMachinist 0.2.1** (`CielMachinist/`, run successfully on a live training dummy on 2026-09-19) and **CielDancer 0.1.0** (`CielDancer/`, run successfully on a live training dummy the same day, which confirms the step-gauge layout). See *Machinist module* and *Dancer module* at the end of this document.
 
 v0.5.2 implements the engine half of the external v0.5.1 code review (`REVIEW_0.5.1.md`): Barrage-aware Shadowbite, multi-dot off by default, a lazy ACR stub that survives reverse load order, pending-request dedupe, a complete Optimized-preset reset, and `debug` off. See *Engine changes made from the 0.5.1 code review* below.
 

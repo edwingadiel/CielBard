@@ -22,7 +22,9 @@ Experimental level-100 rotation modules for FFXIVMinion/MMOMinion. The project s
 
 **CielMachinist 0.2.1** has also been run on a live training dummy and behaved correctly. Its simulator is calibrated against the top 40 Machinist parses: the engine's weaponskill rate is within 0.6% of the top 10 and its opener is the most common top-10 opener.
 
-**CielDancer 0.1.0** is offline-tested only. Its simulator is calibrated against the top 40 Dancer parses. It still needs its first live dummy session, above all to confirm the step gauge; see `CielDancer/README.md` for the checklist.
+**CielDancer 0.1.0** has been run on a live training dummy as well and danced correctly, which confirms the step-gauge layout the engine reads. Its simulator is calibrated against the top 40 Dancer parses.
+
+None of the three has been validated in duties.
 
 All three modules keep the optimized setup as the zero-configuration experience. An opt-in advanced panel adds presets and per-ability Auto/Off controls; the engine recalculates holds, burst behavior, and fallback actions around the enabled set rather than assuming every button is available. They install side by side and share no globals or settings.
 
