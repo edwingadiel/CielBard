@@ -1,6 +1,6 @@
 [Module]
 Name=CielDancer
 Dependencies=minionlib,FFXIVMINION
-Version=0.1.0
+Version=0.2.0
 Files=CielDancer_Data.lua,CielDancer_Rotation.lua,CielDancer.lua
 Enabled=1

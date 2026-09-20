@@ -2,7 +2,11 @@
 
 Ciel Bard is an experimental level-100 Bard rotation addon built from the top-40 Vamp Fatale FFLogs analysis. It executes a priority system rather than replaying a fixed sequence.
 
-Version 0.5.2 is a training-dummy MVP. Execution starts disabled and must be explicitly armed in the window. The optimized setup remains the default; advanced customization is hidden behind one opt-in setting.
+Version 0.5.3 is a training-dummy MVP. Execution starts disabled and must be explicitly armed in the window. The optimized setup remains the default; advanced customization is hidden behind one opt-in setting.
+
+## Hold burst
+
+Fights often need the two-minute burst delayed. While **Hold burst** is on, Raging Strikes, Battle Voice, Radiant Finale, Barrage and the potion wait. Songs, DoTs, Empyreal Arrow, procs and the GCD carry on, and Soul Voice and the Heartbreak Shot charges are kept for the release and only spent at their caps. The switch is shared by all three Ciel modules, shows up as a **Hold burst** button at the top of the window and as a small floating **Ciel Hold** window you can leave open mid-fight, releases itself when combat ends (and optionally after a number of seconds), and is never saved: it is always off after a reload. A burst whose buffs are already running is finished, not abandoned.
 
 ## What it implements
 

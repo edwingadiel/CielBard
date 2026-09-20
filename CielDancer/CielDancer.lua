@@ -353,6 +353,35 @@ local function drawLockToolNotice(config)
     GUI:Separator()
 end
 
+-- Smart hold: one switch shared by every Ciel module (CielShared.hold).
+local HOLD_TEXT = "Technical Step, Devilment, the burst Flourish and the potion wait. Standard Step, procs and the combo continue; Esprit and feathers are only spent at their caps. A burst that is already running finishes."
+
+local function holdLabel()
+    if CielDancerEngine.HoldActive() then
+        return string.format("HOLDING BURST  %.0fs  -  click to release", CielDancerEngine.HoldSeconds())
+    end
+    return "Hold burst"
+end
+
+local function drawHoldControls(config)
+    if GUI:Button(holdLabel() .. "##cieldnc-hold", 300, 28) then CielDancerEngine.ToggleHold() end
+    if CielDancerEngine.HoldActive() then GUI:TextWrapped(HOLD_TEXT) end
+end
+
+-- A small always-available button, because the main window is usually closed
+-- mid-fight. Drawn only while this module's job is being played.
+function CielDancer.DrawHoldButton()
+    local config = settings()
+    if config.showHoldButton == false then return end
+    if not Player or Player.job ~= CielDancerData.DancerJobID then return end
+    GUI:SetNextWindowSize(330, 70, GUI.SetCond_FirstUseEver)
+    local visible = GUI:Begin("Ciel Hold##cieldnc-holdwindow", true)
+    if visible then
+        if GUI:Button(holdLabel() .. "##cieldnc-holdmini", 310, 30) then CielDancerEngine.ToggleHold() end
+    end
+    GUI:End()
+end
+
 -- Window ---------------------------------------------------------------------------------
 
 function CielDancer.DrawWindow()
@@ -364,6 +393,7 @@ function CielDancer.DrawWindow()
     if config.showWindow ~= CielDancer.windowOpen then config.showWindow = CielDancer.windowOpen markDirty() end
     if visible then
         drawLockToolNotice(config)
+        drawHoldControls(config)
         if drivenByACR() then
             GUI:TextWrapped("Driven by ACR: the ACR Enabled toggle starts and stops the rotation. Remove LuaMods/ACR/CombatRoutines/CielDancer.lua to run standalone.")
         else
@@ -388,6 +418,8 @@ function CielDancer.DrawWindow()
             checkbox("In pre-pull", "potionPrepull")
             GUI:Text("Potion found: " .. tostring(state.potionName or "None"))
         end
+        checkbox("Choose the dance partner automatically", "autoPartner")
+        GUI:Text("Dance partner: " .. tostring(state.partnerName or "None"))
         checkbox("Pre-pull Standard Step", "prepull")
         if config.prepull and config.requireCombat then
             GUI:SameLine()
@@ -454,6 +486,7 @@ function CielDancer.DrawWindow()
                 customCheckbox("Pool resources for burst", "resourcePooling")
                 customCheckbox("Require target line of sight", "requireLOS")
                 customCheckbox("Warn when there is no dance partner", "warnNoPartner")
+                customCheckbox("Swap to a better partner out of combat", "partnerUpgradeOutOfCombat")
 
                 if GUI:CollapsingHeader("Dances - Auto / Off") then
                     abilityCheckbox("Standard Step", "StandardStep")
@@ -503,6 +536,14 @@ function CielDancer.DrawWindow()
             for _, warning in ipairs(warnings) do GUI:TextWrapped("- " .. warning) end
         end
 
+        if GUI:CollapsingHeader("Hold burst") then
+            GUI:TextWrapped(HOLD_TEXT)
+            GUI:TextWrapped("The hold is shared by every Ciel module and is never saved: it is off after a reload.")
+            checkbox("Show the floating hold button", "showHoldButton")
+            checkbox("Release the hold when combat ends", "holdClearsOnCombatEnd")
+            sliderInt("Release the hold automatically after (s, 0 = never)", "holdAutoReleaseSeconds", 0, 180)
+        end
+
         if GUI:CollapsingHeader("Better weaving (optional tools)") then
             GUI:TextWrapped(LOCK_TOOL_TEXT)
             if config.lockToolNoticeDismissed and GUI:Button("Show startup notice again##cieldnc-locktool2", 200, 22) then
@@ -550,6 +591,9 @@ end
 
 function CielDancer.Draw()
     if not CielDancer.initialized then return end
+    -- The floating hold button is drawn from here in every mode: this handler
+    -- runs each frame whether or not ACR owns the rotation window.
+    CielDancer.DrawHoldButton()
     if drivenByACR() then return end -- ACR draws the window through the profile
     if not CielDancer.windowOpen then return end
     CielDancer.DrawWindow()

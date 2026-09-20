@@ -57,6 +57,8 @@
                                   { "status": "FinishingMoveReady", "duration_s": 30 } ] },
   "Devilment":      { "id": 16011, "recast_s": 120, "self": true,
                       "grants": [ { "status": "Devilment", "duration_s": 20 }, { "status": "FlourishingStarfall", "duration_s": 20 } ] },
+  "ClosedPosition": { "id": 16006, "recast_s": 30, "out_of_combat": true },
+  "Ending":         { "id": 18073, "recast_s": 1, "self": true, "out_of_combat": true },
   "SecondWind":     { "id": 7541,  "recast_s": 120, "self": true },
   "CuringWaltz":    { "id": 16015, "recast_s": 60, "self": true },
   "ShieldSamba":    { "id": 16012, "recast_s": 90, "self": true }

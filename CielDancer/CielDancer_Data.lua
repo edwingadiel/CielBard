@@ -1,8 +1,12 @@
 CielDancerData = CielDancerData or {}
 
-CielDancerData.Version = "0.1.0"
+CielDancerData.Version = "0.2.0"
 CielDancerData.DancerJobID = 38
 CielDancerData.ACRProfileName = "CielDancer"
+
+-- Shared by every Ciel module: one hold switch for whichever job is being
+-- played. Runtime only, never saved, so a forgotten hold cannot outlive a reload.
+CielShared = CielShared or { hold = false, holdAt = 0 }
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
 -- actions, cooldowns, and proc requirements at runtime.
@@ -25,6 +29,7 @@ CielDancerData.Actions = {
     TechnicalFinish = 16004,
     SaberDance = 16005,
     ClosedPosition = 16006,
+    Ending = 18073,
     FanDance = 16007,
     FanDanceII = 16008,
     FanDanceIII = 16009,
@@ -60,6 +65,7 @@ CielDancerData.Statuses = {
     StandardFinish = 1821,
     TechnicalFinish = 1822,
     ClosedPosition = 1823,
+    DancePartner = 1824,
     Devilment = 1825,
     SilkenSymmetry = 2693,
     SilkenFlow = 2694,
@@ -111,6 +117,7 @@ CielDancerData.SelfTarget = {
     [15993] = true, [15994] = true, [15995] = true, [15996] = true, [16008] = true,
     [16011] = true, [16013] = true, [16012] = true, [16015] = true, [16014] = true,
     [7541] = true,
+    [18073] = true, -- Ending
 }
 
 -- Finishes, Tillana and Finishing Move hit a 15 yalm circle around the dancer;
@@ -118,6 +125,28 @@ CielDancerData.SelfTarget = {
 CielDancerData.FinishRadius = 15
 CielDancerData.CircleRadius = 5
 CielDancerData.ComboWindowSeconds = 30
+
+-- Dance partner priority, The Balance (level 100):
+--   SAM > PCT / RPR / VPR / MNK / NIN > DRG / BLM > RDM > SMN > MCH > BRD > DNC
+-- Lower rank is better. Jobs inside one tier are equal; the listed order breaks
+-- the tie. Tanks and healers come after every damage dealer.
+CielDancerData.PartnerTiers = {
+    { 34 },                 -- Samurai
+    { 42, 39, 41, 20, 30 }, -- Pictomancer, Reaper, Viper, Monk, Ninja
+    { 22, 25 },             -- Dragoon, Black Mage
+    { 35 },                 -- Red Mage
+    { 27 },                 -- Summoner
+    { 31 },                 -- Machinist
+    { 23 },                 -- Bard
+    { 38 },                 -- Dancer
+    { 32, 37, 21, 19 },     -- Dark Knight, Gunbreaker, Warrior, Paladin
+    { 40, 33, 28, 24 },     -- Sage, Astrologian, Scholar, White Mage
+}
+CielDancerData.PartnerRank = {}
+for tier, jobs in ipairs(CielDancerData.PartnerTiers) do
+    for order, job in ipairs(jobs) do CielDancerData.PartnerRank[job] = tier * 100 + order end
+end
+CielDancerData.PartnerRange = 30
 
 -- Every optional action is routed through this central capability table.
 -- Utility automation is opt-in.
@@ -201,6 +230,15 @@ CielDancerData.Defaults = {
     terminalDumping = true,
     resourcePooling = true,
 
+    -- Smart hold (the HOLD BURST toggle). While it is on the two-minute burst
+    -- is not started and the potion is kept; everything that would otherwise
+    -- be lost keeps running, and resources are pooled for the release and only
+    -- spent to stay under their caps. A burst that is already running finishes.
+    holdAutoReleaseSeconds = 0, -- 0 = hold until released
+    holdClearsOnCombatEnd = true,
+    showHoldButton = true,
+    holdFlourishSeconds = 15, -- while holding, Flourish waits when Technical Step is this close
+
     -- A Technical dance is seven seconds of steps and a Standard one five;
     -- neither is started on a target that will not live to repay it.
     technicalMinimumTTK = 12,
@@ -220,6 +258,7 @@ CielDancerData.Defaults = {
     burstSaberOvercapEsprit = 80, -- inside the burst a spender goes first from this much Esprit
     -- Tillana gives 50 Esprit; it waits for the gauge to drop to this.
     tillanaMaxEsprit = 30,
+    tillanaBurstDeadlineSeconds = 6, -- ...but no later than this long before the burst buffs end
     -- Thirty-second procs are pressed first once this close to lapsing, and
     -- Starfall Dance once Flourishing Starfall is.
     procUrgentSeconds = 5,
@@ -242,6 +281,11 @@ CielDancerData.Defaults = {
     -- off), otherwise armed from the window.
     prepull = true,
     warnNoPartner = true,
+    -- Closed Position on the best party member by The Balance's priority
+    -- whenever the dancer has no partner. Out of combat a partner is also
+    -- swapped for a better one that has since come into range.
+    autoPartner = true,
+    partnerUpgradeOutOfCombat = true,
 
     secondWindHP = 45,
     curingWaltzHP = 60,

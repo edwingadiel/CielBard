@@ -275,6 +275,73 @@ function E.TryDance(ctx, kind)
     return true
 end
 
+-- Dance partner ---------------------------------------------------------------------
+-- Closed Position and Dance Partner are permanent statuses, which clients may
+-- report with a zero duration, so they are tested for presence only.
+
+local function hasBuff(entity, statusID, ownerID)
+    if not entity or not valid(entity.buffs) then return false end
+    for _, buff in pairs(entity.buffs) do
+        if buff.id == statusID and (not ownerID or buff.ownerid == ownerID) then return true end
+    end
+    return false
+end
+
+-- The best eligible party member and the dancer's current partner, if any.
+function E.FindPartners()
+    if not EntityList or not Player then return nil, nil end
+    local list = EntityList("myparty,alive,maxdistance2d=" .. tostring(D.PartnerRange))
+    if not valid(list) then return nil, nil end
+    local best, current = nil, nil
+    for _, entity in pairs(list) do
+        local rank = entity and entity.id ~= Player.id and entity.job and D.PartnerRank[tonumber(entity.job)]
+        if rank and entity.alive ~= false then
+            if hasBuff(entity, ST.DancePartner, Player.id) then current = entity end
+            local bestRank = best and D.PartnerRank[tonumber(best.job)]
+            if not best or rank < bestRank or (rank == bestRank and entity.id < best.id) then best = entity end
+        end
+    end
+    return best, current
+end
+
+function E.HasPartner()
+    if hasBuff(Player, ST.ClosedPosition, Player.id) or hasBuff(Player, ST.ClosedPosition) then return true end
+    local _, current = E.FindPartners()
+    return current ~= nil
+end
+
+-- Returns true when a request went out.
+function E.TryPartner()
+    local c, s = E.config, E.state
+    if not c.autoPartner or E.Dancing() then return false end
+    local ticks = now()
+    if ticks - (s.partnerCheckedAt or 0) < 1000 then return false end
+    s.partnerCheckedAt = ticks
+    local best, current = E.FindPartners()
+    s.partySize = 1
+    s.partnerName = current and (current.name or tostring(current.id)) or "None"
+    if not best then return false end
+    s.partySize = 2
+    local partnered = current ~= nil or hasBuff(Player, ST.ClosedPosition)
+    if not partnered then
+        if ticks - (s.partnerRequestedAt or 0) < 5000 then return false end
+        if E.TryCast(A.ClosedPosition, best, "Closed Position on " .. tostring(best.name or best.id)) then
+            s.partnerRequestedAt = ticks
+            return true
+        end
+        return false
+    end
+    -- A better partner has come into range: swap, but never mid-fight.
+    if current and c.partnerUpgradeOutOfCombat and not Player.incombat and
+        D.PartnerRank[tonumber(best.job)] < D.PartnerRank[tonumber(current.job)] and
+        ticks - (s.partnerRequestedAt or 0) >= 5000 and
+        E.TryCast(A.Ending, Player, "Ending to take a better dance partner") then
+        s.partnerRequestedAt = 0
+        return true
+    end
+    return false
+end
+
 -- Configuration warnings -------------------------------------------------------
 
 function E.GetConfigurationWarnings()
@@ -283,9 +350,9 @@ function E.GetConfigurationWarnings()
     if c.usePotion and not E.PotionAvailable() then
         table.insert(warnings, "Potion use is On but no Gemdraught of Dexterity was found in inventory.")
     end
-    if Player and Player.incombat and c.warnNoPartner and buffRemaining(Player, ST.ClosedPosition, Player.id) <= 0 and
-        (E.state.partySize or 1) > 1 then
-        table.insert(warnings, "No dance partner: use Closed Position on a party member.")
+    if Player and c.warnNoPartner and (E.state.partySize or 1) > 1 and not E.HasPartner() then
+        table.insert(warnings, c.autoPartner and "No dance partner yet: waiting for Closed Position to be ready and a party member in range."
+            or "No dance partner: use Closed Position on a party member, or switch automatic partner on.")
     end
     if not c.advancedEnabled then return warnings end
     local enabled = E.AbilityEnabled
@@ -331,6 +398,51 @@ local function nextBurstSeconds()
     return remaining, true
 end
 
+-- Smart hold --------------------------------------------------------------------------
+-- One switch shared by all Ciel modules (CielShared.hold). Fights often need
+-- the burst delayed: the boss is about to leave, the party is waiting on a
+-- mechanic. Holding stops the two-minute burst from *starting* and keeps the
+-- potion; it never stops the GCD, never lets a cooldown weaponskill, a DoT or a
+-- proc go to waste, and spends pooled resources only to stay under their caps.
+-- A burst whose buffs are already running is finished, not abandoned.
+
+function E.HoldActive()
+    local shared = CielShared
+    if not shared or not shared.hold then return false end
+    local limit = tonumber((E.config or D.Defaults).holdAutoReleaseSeconds) or 0
+    if limit > 0 and (now() - (shared.holdAt or 0)) / 1000 >= limit then
+        shared.hold = false
+        return false
+    end
+    return true
+end
+
+function E.SetHold(value)
+    CielShared.hold = value == true
+    CielShared.holdAt = now()
+end
+
+function E.ToggleHold()
+    E.SetHold(not E.HoldActive())
+end
+
+-- Seconds the hold has been on, for the window.
+function E.HoldSeconds()
+    if not E.HoldActive() then return 0 end
+    return (now() - (CielShared.holdAt or 0)) / 1000
+end
+
+-- A wipe or a kill ends the reason for holding.
+local function trackCombatForHold()
+    local s, c = E.state, E.config
+    if Player.incombat then
+        s.wasInCombat = true
+    elseif s.wasInCombat then
+        s.wasInCombat = false
+        if c.holdClearsOnCombatEnd ~= false and CielShared then CielShared.hold = false end
+    end
+end
+
 function E.Init(config)
     E.config = config
     E.ResetCombat("Initialized")
@@ -354,6 +466,8 @@ function E.ResetCombat(reason)
     s.sampleTargetID = 0
     s.lastSampleAt = 0
     s.enemyCount = 1
+    s.partnerCheckedAt = 0
+    s.partnerRequestedAt = 0
     s.lastDecision = reason or "Reset"
 end
 
@@ -682,6 +796,7 @@ function E.BuildContext(target, gcdRemaining)
         esprit = esprit,
         feathers = s.feathers,
         dancing = s.dancing,
+        hold = E.HoldActive() and not burstActive,
         gcdRemaining = gcdRemaining or 0,
         pullNow = Player.incombat or not c.requireCombat,
     }
@@ -697,7 +812,7 @@ end
 
 function E.TechnicalStepAllowed(ctx)
     local c = E.config
-    if not E.AbilityEnabled("TechnicalStep") then return false end
+    if not E.AbilityEnabled("TechnicalStep") or ctx.hold then return false end
     -- The dance is seven seconds of steps; it has to pay for itself.
     if ctx.ttk < (tonumber(c.technicalMinimumTTK) or 0) then return false end
     -- Without a pre-pull the Standard Finish buff is missing at the start of
@@ -809,7 +924,12 @@ function E.TryGCD(ctx)
             espritSpender(ctx, "Saber Dance at " .. tostring(ctx.esprit) .. " Esprit in the burst") then return true end
         -- Tillana gives 50 Esprit; it goes first while that fits, and after an
         -- Esprit spender when it would overcap.
-        if E.AbilityEnabled("Tillana") and (ctx.esprit <= (tonumber(c.tillanaMaxEsprit) or 30) or
+        -- When the party keeps the gauge full it never drops that low, so once the
+        -- buffs are about to end Tillana goes out anyway: 600 potency under them is
+        -- worth more than the few points of Esprit that spill over.
+        local tillanaDeadline = (ctx.burstRemaining or 0) > 0 and
+            ctx.burstRemaining <= (tonumber(c.tillanaBurstDeadlineSeconds) or 6)
+        if E.AbilityEnabled("Tillana") and (ctx.esprit <= (tonumber(c.tillanaMaxEsprit) or 30) or tillanaDeadline or
             expiring(ST.FlourishingFinish, (tonumber(c.starfallUrgentSeconds) or 5) + 2.5)) and
             E.TryCast(A.Tillana, target, "Tillana") then return true end
         if ctx.esprit >= 50 and E.AbilityEnabled("DanceOfTheDawn") and
@@ -901,6 +1021,11 @@ function E.FlourishAllowed(ctx)
     -- Its Threefold and Fourfold procs would overwrite ones still waiting.
     if buffRemaining(Player, ST.ThreefoldFanDance, Player.id) > 0 or
         buffRemaining(Player, ST.FourfoldFanDance, Player.id) > 0 then return false end
+    if ctx.hold then
+        -- Holding: the Flourish that belongs to the held burst waits with it; the
+        -- off-minute one is used as usual.
+        return ctx.nextBurst > (tonumber(c.holdFlourishSeconds) or 15)
+    end
     if ctx.burstActive or ctx.terminal then return true end
     -- Sixty-second recast: every other use belongs to the burst.
     return not pooling(ctx, c.flourishHoldSeconds)
@@ -931,12 +1056,13 @@ function E.TryOGCD(ctx)
     end
 
     if E.TryUtility(ctx) then return true end
+    if E.TryPartner() then return true end
 
     -- Devilment goes out right behind Technical Finish (on cooldown when
     -- Technical Step is Off). The potion shares that window.
     local technicalUp = buffRemaining(Player, ST.TechnicalFinish, Player.id) > 0 or
         procActive("TechnicalFinish", ST.TechnicalFinish, 20)
-    local devilmentNow = E.AbilityEnabled("Devilment") and
+    local devilmentNow = E.AbilityEnabled("Devilment") and (technicalUp or not ctx.hold) and
         (technicalUp or not E.AbilityEnabled("TechnicalStep") or ctx.terminal) and ready(A.Devilment, Player.id)
     if devilmentNow and E.TryCast(A.Devilment, target, "Devilment behind Technical Finish") then return true end
     if potionWanted(ctx) and not ctx.burstActive and E.TechnicalStepAllowed(ctx) and
@@ -944,7 +1070,7 @@ function E.TryOGCD(ctx)
         E.TryPotion(ctx, "Potion before Technical Step: " .. tostring(s.potionName)) then return true end
     if potionWanted(ctx) and ctx.burstActive and ctx.burstElapsed <= 6 and
         E.TryPotion(ctx, "Potion in burst window: " .. tostring(s.potionName)) then return true end
-    if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and
+    if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and not ctx.hold and
         E.TryPotion(ctx, "Potion on cooldown: " .. tostring(s.potionName)) then return true end
 
     if E.AbilityEnabled("FanDanceIII") and E.TryCast(A.FanDanceIII, target, "Fan Dance III") then return true end
@@ -1008,6 +1134,9 @@ function E.Step(viaACR)
     s.lastPulse = ticks
 
     if not Player or not Player.alive or Player.job ~= D.DancerJobID then s.lastDecision = "Requires Dancer" return false end
+    trackCombatForHold()
+    if not Player.incombat and not (type(MIsLocked) == "function" and MIsLocked()) and
+        not (type(MIsLoading) == "function" and MIsLoading()) and E.TryPartner() then return true end
     if type(MIsLoading) == "function" and MIsLoading() then return false end
     if type(MIsLocked) == "function" and MIsLocked() then return false end
     if type(MIsCasting) == "function" and MIsCasting() then return false end

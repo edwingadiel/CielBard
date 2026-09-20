@@ -1,6 +1,6 @@
 # Testing the Ciel modules
 
-Three experimental level-100 rotation modules for FFXIVMinion / MMOMinion: **CielBard 0.5.2**, **CielMachinist 0.2.1** and **CielDancer 0.1.0**. All three have been run on a live training dummy by the maintainer. **None has been tested in a duty yet.** That is what you are helping with.
+Three experimental level-100 rotation modules for FFXIVMinion / MMOMinion: **CielBard 0.5.3**, **CielMachinist 0.3.0** and **CielDancer 0.2.0**. All three have been run on a live training dummy by the maintainer. **None has been tested in a duty yet.** That is what you are helping with.
 
 Third-party automation may violate the game's terms of service. Use at your own risk.
 
@@ -31,9 +31,13 @@ Installing from the repository instead: copy the three `.lua` files and `module.
    - Dancer: press Standard Step by hand once. Two step slots fill and "next step" names the step the game highlights.
    If a value looks wrong, move the index slider next to it until it matches.
 2. Enable ACR and watch one opener and one two-minute burst.
-3. Dancer: choose your dance partner yourself (Closed Position is not automated). On a solo dummy there is little Esprit, so few Saber Dances is normal.
+3. Dancer: the dance partner is chosen for you by The Balance's priority (you can switch that off and pick by hand). On a solo dummy there is little Esprit, so few Saber Dances is normal.
 
 Optional but recommended: [XivAlexander](https://github.com/Soreepeong/XivAlexander) or [NoClippy](https://github.com/UnknownX7/NoClippy) for cleaner double weaves. Run only one of them.
+
+## Hold burst
+
+Every module has a **Hold burst** button at the top of its window and a small floating **Ciel Hold** window. Use it when the fight needs the two-minute burst delayed: boss about to leave, party waiting on a mechanic. It only stops the burst from *starting* (and keeps the potion). The GCD, cooldown weaponskills, DoTs, songs and procs carry on, and resources are banked for the release and only spent to stay under their caps. Press it again to release; it also releases itself when combat ends, and it is never saved across reloads. If you press it after the burst has already started, that burst is finished normally.
 
 ## Safe defaults
 
@@ -46,7 +50,7 @@ Optional but recommended: [XivAlexander](https://github.com/Soreepeong/XivAlexan
 
 Please open an issue at <https://github.com/edwingadiel/CielBard/issues> (or message the maintainer) with:
 
-- job, module version (shown in the MMOMinion console at load: `[CielDancer] Loaded v0.1.0`), and what content you were in;
+- job, module version (shown in the MMOMinion console at load: `[CielDancer] Loaded v0.2.0`), and what content you were in;
 - what happened and what you expected: a stall, a wrong button, clipping, a cooldown drifting, the rotation stopping after a mechanic or a death;
 - the **Current decision** line from the window at that moment, and any red Lua error from the console;
 - if you can, turn on `debug` for a minute: it prints one line per second with the gauge and timing values the engine sees.

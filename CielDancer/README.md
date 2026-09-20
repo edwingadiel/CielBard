@@ -2,7 +2,7 @@
 
 Experimental level-100 Dancer rotation module for FFXIVMinion/MMOMinion, built on the same engine design as CielBard and CielMachinist: a GCD-first priority engine with a central Auto/Off capability layer, kill-time awareness, a pending-request guard, and an ACR profile.
 
-Version 0.1.0 has been run on a live training dummy (2026-09-19) and danced correctly; it has not been validated in duties. Execution is disabled by default.
+Version 0.2.0 adds the shared **Hold burst** switch and automatic dance partners. Version 0.1.0 has been run on a live training dummy (2026-09-19) and danced correctly; it has not been validated in duties. Execution is disabled by default.
 
 ## Install
 
@@ -10,7 +10,7 @@ Version 0.1.0 has been run on a live training dummy (2026-09-19) and danced corr
 2. To run it through ACR, copy `CielDancer/acr/CielDancer.lua` to `LuaMods/ACR/CombatRoutines/CielDancer.lua` and pick **CielDancer** in ACR's Dancer dropdown. ACR's Enabled toggle is then the master switch.
 3. Reload Lua modules or restart MMOMinion, switch to Dancer, and open the **Ciel Dancer** window.
 
-It installs next to CielBard and CielMachinist; the three share no globals or settings. **Closed Position is left to you**: pick your dance partner by hand (the window warns when you are in a party without one).
+It installs next to CielBard and CielMachinist; the three share no settings, only the hold switch.
 
 ## What it does
 
@@ -27,7 +27,10 @@ Priorities follow The Balance's level-100 guide, the official job guide (Patch 7
 - AoE replacements (Windmill, Bladeshower, Rising Windmill, Bloodshower, Fan Dance II) from two targets, counted inside the five-yalm circle around **you**, not the target.
 - **Pre-pull.** With *Require combat* off the engine pulls: Standard Step, both steps, the potion, then Standard Finish as the pull. With *Require combat* on, press **Pre-pull now** about fifteen seconds before the pull: it dances both steps and holds the finish until combat starts. It never pulls for you, and the dance lapses after fifteen seconds.
 
-Not implemented: Closed Position / partner choice, En Avant, Improvisation, Head Graze, encounter-specific logic.
+- **Dance partner.** Whenever you have no partner, Closed Position goes on the best party member within 30 yalms by The Balance's level-100 priority: **SAM > PCT / RPR / VPR / MNK / NIN > DRG / BLM > RDM > SMN > MCH > BRD > DNC**, then tanks, then healers. Dead members are skipped. Out of combat a partner is swapped (Ending, then Closed Position) when a better one has come into range; in combat the partner is never changed. Turn it off with *Choose the dance partner automatically* to pick by hand.
+- **Hold burst.** While it is on, Technical Step, Devilment, the Flourish that belongs to the held burst and the potion wait. Standard Step / Finishing Move, procs and the combo carry on; Esprit is only spent from 80 and feathers only at four; Last Dance and Fan Dance IV are kept but never allowed to lapse. The switch is shared by all three Ciel modules, shows up as a **Hold burst** button at the top of the window and as a small floating **Ciel Hold** window you can leave open mid-fight, releases itself when combat ends (and optionally after a number of seconds), and is never saved: it is always off after a reload. A burst whose buffs are already running is finished, not abandoned.
+
+Not implemented: En Avant, Improvisation, Head Graze, encounter-specific logic.
 
 ## First live test
 

@@ -312,6 +312,51 @@ local function nextBurstSeconds()
     return remaining, true
 end
 
+-- Smart hold --------------------------------------------------------------------------
+-- One switch shared by all Ciel modules (CielShared.hold). Fights often need
+-- the burst delayed: the boss is about to leave, the party is waiting on a
+-- mechanic. Holding stops the two-minute burst from *starting* and keeps the
+-- potion; it never stops the GCD, never lets a cooldown weaponskill, a DoT or a
+-- proc go to waste, and spends pooled resources only to stay under their caps.
+-- A burst whose buffs are already running is finished, not abandoned.
+
+function E.HoldActive()
+    local shared = CielShared
+    if not shared or not shared.hold then return false end
+    local limit = tonumber((E.config or D.Defaults).holdAutoReleaseSeconds) or 0
+    if limit > 0 and (now() - (shared.holdAt or 0)) / 1000 >= limit then
+        shared.hold = false
+        return false
+    end
+    return true
+end
+
+function E.SetHold(value)
+    CielShared.hold = value == true
+    CielShared.holdAt = now()
+end
+
+function E.ToggleHold()
+    E.SetHold(not E.HoldActive())
+end
+
+-- Seconds the hold has been on, for the window.
+function E.HoldSeconds()
+    if not E.HoldActive() then return 0 end
+    return (now() - (CielShared.holdAt or 0)) / 1000
+end
+
+-- A wipe or a kill ends the reason for holding.
+local function trackCombatForHold()
+    local s, c = E.state, E.config
+    if Player.incombat then
+        s.wasInCombat = true
+    elseif s.wasInCombat then
+        s.wasInCombat = false
+        if c.holdClearsOnCombatEnd ~= false and CielShared then CielShared.hold = false end
+    end
+end
+
 function E.Init(config)
     E.config = config
     E.ResetCombat("Initialized")
@@ -810,6 +855,7 @@ function E.BuildContext(target, gcdRemaining)
         heat = s.heat,
         battery = s.battery,
         overheated = overheated,
+        hold = E.HoldActive() and not burstActive,
         gcdRemaining = gcdRemaining or 0,
     }
 end
@@ -860,6 +906,15 @@ function E.HyperchargeAllowed(ctx)
     if not E.AbilityEnabled("Hypercharge") or not overheatSpenderEnabled() then return false end
     if ctx.overheated or not ready(A.Hypercharge, Player.id) then return false end
     if hyperchargedExpiring() then return true, "Hypercharge before Hypercharged expires" end
+    if ctx.hold then
+        -- Holding: Wildfire is not coming, so Hypercharge is not kept for it; heat
+        -- is banked for the release and only spent close to the cap. A gauge that
+        -- reads under 50 while Hypercharge is ready is a miscalibrated index.
+        if E.ToolsBlockHypercharge(tonumber(c.hyperchargeToolLeadSeconds) or 8) then return false end
+        local heat = ctx.heat or 0
+        if heat >= 50 and heat < (tonumber(c.holdHeat) or 90) then return false end
+        return true, "Hypercharge at " .. tostring(heat) .. " heat (holding)"
+    end
 
     if E.ToolsBlockHypercharge(tonumber(c.hyperchargeToolLeadSeconds) or 8) then return false end
 
@@ -902,7 +957,7 @@ function E.WildfireAllowed(ctx, ignoreTiming)
     local c = E.config
     if not E.AbilityEnabled("Wildfire") then return false end
     if ctx.ttk < (tonumber(c.wildfireMinimumTTK) or 0) then return false end
-    if E.WildfireActive() then return false end
+    if E.WildfireActive() or ctx.hold then return false end
     if not E.AbilityEnabled("Hypercharge") or not overheatSpenderEnabled() then return true end
     if ctx.overheated then
         return ctx.terminal or (E.state.overheatStacks or 0) >= (tonumber(c.wildfireMinimumStacks) or 3)
@@ -1025,6 +1080,7 @@ function E.ReassembleAllowed(ctx)
     -- Bioblaster is a DoT; the guaranteed critical direct hit is wasted on it.
     if tool == "Drill" and bioblasterWanted(ctx) then return false end
     local charges = s.charges.Reassemble or chargeState(A.Reassemble, 2)
+    if ctx.hold then return chargeAboutToCap(charges, tonumber(c.chargeCapLeadSeconds) or 4), tool end
     if ctx.terminal or not charges.info then return true, tool end
     if chargeAboutToCap(charges, tonumber(c.chargeCapLeadSeconds) or 4) then return true, tool end
     if ctx.burstActive then
@@ -1051,6 +1107,11 @@ function E.QueenAllowed(ctx)
     if ctx.ttk < (tonumber(c.queenMinimumTTK) or 0) then return false end
     local battery = ctx.battery or 0
     if battery < 50 then return false end
+    if ctx.hold then
+        -- Holding: the battery is kept for the release unless it is full.
+        if battery >= 100 then return true, "Automaton Queen at full battery (holding)" end
+        return false
+    end
     if ctx.terminal or ctx.idealFinish then return true, "Automaton Queen before the kill" end
     if ctx.burstActive then
         if battery < (tonumber(c.queenBatteryBurst) or 50) then return false end
@@ -1124,14 +1185,14 @@ function E.TryOGCD(ctx)
 
     -- Barrel Stabilizer anchors the two-minute burst and is pressed on
     -- cooldown. The potion goes into the same weave window just before it.
-    if E.AbilityEnabled("BarrelStabilizer") and ready(A.BarrelStabilizer, Player.id) then
+    if E.AbilityEnabled("BarrelStabilizer") and not ctx.hold and ready(A.BarrelStabilizer, Player.id) then
         if potionWanted(ctx) and s.weavesSinceGCD + 1 < limit and
             E.TryPotion(ctx, "Potion before burst: " .. tostring(s.potionName)) then return true end
         if E.TryCast(A.BarrelStabilizer, target, "Begin burst with Barrel Stabilizer") then return true end
     end
     if potionWanted(ctx) and ctx.burstActive and ctx.burstElapsed <= 5 and
         E.TryPotion(ctx, "Potion in burst window: " .. tostring(s.potionName)) then return true end
-    if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and
+    if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and not ctx.hold and
         E.TryPotion(ctx, "Potion on cooldown: " .. tostring(s.potionName)) then return true end
 
     if E.WildfireAllowed(ctx) and
@@ -1160,7 +1221,7 @@ function E.TryOGCD(ctx)
 
     -- Double Check / Checkmate: on cooldown, except in the run-up to the burst
     -- where only a stack that is about to cap is spent.
-    if pooling(ctx, c.chargePoolSeconds) and not ctx.overheated then
+    if (pooling(ctx, c.chargePoolSeconds) or ctx.hold) and not ctx.overheated then
         if gaussAboutToCap() and tryGauss(ctx, "Double Check / Checkmate before the stack caps") then return true end
         return false
     end
@@ -1214,6 +1275,7 @@ function E.Step(viaACR)
     s.lastPulse = ticks
 
     if not Player or not Player.alive or Player.job ~= D.MachinistJobID then s.lastDecision = "Requires Machinist" return false end
+    trackCombatForHold()
     if type(MIsLoading) == "function" and MIsLoading() then return false end
     if type(MIsLocked) == "function" and MIsLocked() then return false end
     if type(MIsCasting) == "function" and MIsCasting() then return false end

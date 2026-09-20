@@ -196,7 +196,7 @@ class ClientCase(unittest.TestCase):
 class TestLoadAndInit(ClientCase):
     def test_loads_shipped_lua_and_inits(self) -> None:
         client = self.client()
-        assert client.data["Version"] == "0.5.2"
+        assert client.data["Version"] == "0.5.3"
         assert int(client.data["BardJobID"]) == 23
         assert client.warnings() == []
         assert client.engine.state["lastDecision"] == "Initialized"

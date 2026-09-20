@@ -4,9 +4,9 @@ Experimental level-100 rotation modules for FFXIVMinion/MMOMinion. The project s
 
 ## Repository layout
 
-- `CielBard/` — installable Bard module (v0.5.2).
-- `CielMachinist/` — installable Machinist module (v0.2.1).
-- `CielDancer/` — installable Dancer module (v0.1.0).
+- `CielBard/` — installable Bard module (v0.5.3).
+- `CielMachinist/` — installable Machinist module (v0.3.0).
+- `CielDancer/` — installable Dancer module (v0.2.0).
 - `sim/` — Bard training-dummy simulator that drives the shipped Bard Lua engine unmodified. Start with `sim/output/FINDINGS.md`.
 - `sim_mch/` — Machinist simulator that drives the shipped Machinist Lua engine unmodified. Start with `sim_mch/output/FINDINGS.md`.
 - `sim_dnc/` — Dancer simulator (seeded: Dancer is random), same design as `sim_mch/`.
@@ -19,13 +19,13 @@ Experimental level-100 rotation modules for FFXIVMinion/MMOMinion. The project s
 
 ## Current status
 
-**CielBard 0.5.2** has been run through its ACR profile on a live training dummy and behaved correctly. It has not been validated in duties. Execution is disabled by default.
+**CielBard 0.5.3** has been run through its ACR profile on a live training dummy and behaved correctly. It has not been validated in duties. Execution is disabled by default.
 
-**CielMachinist 0.2.1** has also been run on a live training dummy and behaved correctly. Its simulator is calibrated against the top 40 Machinist parses: the engine's weaponskill rate is within 0.6% of the top 10 and its opener is the most common top-10 opener.
+**CielMachinist 0.3.0** has also been run on a live training dummy and behaved correctly. Its simulator is calibrated against the top 40 Machinist parses: the engine's weaponskill rate is within 0.6% of the top 10 and its opener is the most common top-10 opener.
 
-**CielDancer 0.1.0** has been run on a live training dummy as well and danced correctly, which confirms the step-gauge layout the engine reads. Its simulator is calibrated against the top 40 Dancer parses.
+**CielDancer 0.2.0** has been run on a live training dummy as well and danced correctly, which confirms the step-gauge layout the engine reads. Its simulator is calibrated against the top 40 Dancer parses.
 
-None of the three has been validated in duties.
+None of the three has been validated in duties, and the newest additions (the shared **Hold burst** switch in all three, automatic dance partners in CielDancer) are offline-tested only.
 
 All three modules keep the optimized setup as the zero-configuration experience. An opt-in advanced panel adds presets and per-ability Auto/Off controls; the engine recalculates holds, burst behavior, and fallback actions around the enabled set rather than assuming every button is available. They install side by side and share no globals or settings.
 
@@ -40,6 +40,7 @@ python tests/run_mch_mock_tests.py
 python tests/run_mch_gui_tests.py
 python tests/run_dnc_mock_tests.py
 python tests/run_dnc_gui_tests.py
+python tests/run_hold_tests.py
 ```
 
 `run_sim_tests.py` also picks up the Machinist and Dancer simulator tests (`tests/test_mch_*.py`, `tests/test_dnc_sim.py`).

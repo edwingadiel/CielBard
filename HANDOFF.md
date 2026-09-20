@@ -799,3 +799,33 @@ Everything in the Bard and Machinist lists, plus:
 - Whether Cascade's `cd` / `cdmax` follow the 1.0 s and 1.5 s dance recasts; `E.GCDRemaining` reads the GCD from Cascade.
 - Status ids 1818, 1819, 1821, 1822, 1825, 2693, 2694, 2698, 2699, 2700, 3017, 3018, 3867, 3868, 3869 in `Player.buffs`.
 - `entity.distance2d` for enemies returned by `EntityList`, used for the AoE count.
+
+## Smart hold and dance partners (Bard 0.5.3, Machinist 0.3.0, Dancer 0.2.0)
+
+### The hold
+
+The maintainer's requirement: fights regularly need the burst delayed for fight reasons, so every job gets one toggle, and it has to be a *smart* hold. What "hold" means was worked out per job from one principle: **stop the two-minute burst from starting, and lose nothing else.**
+
+- **One switch for every module.** `CielShared = { hold, holdAt }` is a global defined (idempotently) by each `*_Data.lua`. `E.HoldActive()`, `E.SetHold()`, `E.ToggleHold()` and `E.HoldSeconds()` exist in every engine and all read the same table, so the button in any window, the floating "Ciel Hold" window, or another addon calling `CielBardEngine.ToggleHold()` does the same thing.
+- **Never persisted.** It lives outside the config, so it cannot reach `Settings` and is always off after a reload. It also clears when combat ends (`holdClearsOnCombatEnd`) and, optionally, after `holdAutoReleaseSeconds`. A hold that someone forgot is the expensive failure mode; these three exits are there for that.
+- **`ctx.hold = E.HoldActive() and not burstActive`.** A hold pressed after the burst's buffs are up does not abandon the burst.
+- **It overrides the kill-time bands** where they conflict: a boss dropping to 1% for a phase change looks terminal to the estimator, and dumping the burst into it is exactly what the user is holding to avoid.
+
+| job | waits | carries on | banked, spent only at the cap |
+|---|---|---|---|
+| Bard | Raging Strikes, Battle Voice, Radiant Finale, Barrage, potion | songs, DoTs and Iron Jaws, Empyreal Arrow, procs, Pitch Perfect | Soul Voice (Apex from 95), Heartbreak Shot charges |
+| Machinist | Barrel Stabilizer, Wildfire, potion | Drill, Air Anchor, Chain Saw, Excavator, the combo | heat (Hypercharge from `holdHeat` 90, and not kept for Wildfire), battery (Queen at 100), Reassemble, Double Check / Checkmate |
+| Dancer | Technical Step, Devilment, the burst's Flourish (`holdFlourishSeconds`), potion | Standard Step / Finishing Move, procs, the combo, the off-minute Flourish | Esprit (from 80), feathers (at four); Last Dance and Fan Dance IV kept but never allowed to lapse |
+
+Machinist needed the most care: outside a hold, Hypercharge is kept for a Wildfire that is nearly up, and with Wildfire held that rule would have blocked Hypercharge for as long as the hold lasted and overcapped heat. Under a hold the Wildfire pairing is skipped entirely.
+
+`tests/run_hold_tests.py` drives all three through their simulators with a hold from 1:50 to 2:30: no burst action inside it, the GCD never stops, tools and songs continue, nothing overcaps or lapses, the burst starts on release with the pooled resources (Wildfire still 6 hits), and a hold pressed three seconds into the opener does not stop that burst. It also caught a Dancer problem that exists without any hold: when the party keeps Esprit above 30 for the whole window, Tillana never went out inside the buffs. It now has a deadline (`tillanaBurstDeadlineSeconds`, 6 s before the buffs end).
+
+The Bard engine changed, so the sha256 pins in `tests/test_integration.py` were re-baselined for 0.5.3.
+
+### Dance partners
+
+`E.TryPartner` puts Closed Position on the best party member from `EntityList("myparty,alive,maxdistance2d=30")` by `CielDancerData.PartnerTiers`, which is The Balance's level-100 list (SAM > PCT / RPR / VPR / MNK / NIN > DRG / BLM > RDM > SMN > MCH > BRD > DNC) with tanks and healers appended. It runs out of combat from `E.Step` and in combat as the first weave, never mid-dance, at most once a second. The current partner is the party member carrying Dance Partner (1824) **owned by the player**, so another dancer's partner is still a candidate. Closed Position and Dance Partner are permanent statuses that may report a zero duration, so they are tested for presence, not remaining time. Out of combat only, a partner is swapped (Ending, then Closed Position on the next check) when a better one is in range.
+
+Unverified live: the `myparty` filter and `entity.job` on party members, status 1824's `ownerid`, and whether Ending (18073) is the id the client wants while partnered.
+

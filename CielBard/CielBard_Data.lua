@@ -1,8 +1,12 @@
 CielBardData = CielBardData or {}
 
-CielBardData.Version = "0.5.2"
+CielBardData.Version = "0.5.3"
 CielBardData.BardJobID = 23
 CielBardData.ACRProfileName = "CielBard"
+
+-- Shared by every Ciel module: one hold switch for whichever job is being
+-- played. Runtime only, never saved, so a forgotten hold cannot outlive a reload.
+CielShared = CielShared or { hold = false, holdAt = 0 }
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
 -- actions, cooldowns, and proc requirements at runtime.
@@ -186,6 +190,14 @@ CielBardData.Defaults = {
     idealKillMax = 30,
     terminalDumping = true,
     resourcePooling = true,
+
+    -- Smart hold (the HOLD BURST toggle). While it is on the two-minute burst
+    -- is not started and the potion is kept; everything that would otherwise
+    -- be lost keeps running, and resources are pooled for the release and only
+    -- spent to stay under their caps. A burst that is already running finishes.
+    holdAutoReleaseSeconds = 0, -- 0 = hold until released
+    holdClearsOnCombatEnd = true,
+    showHoldButton = true,
 
     dotRefreshSeconds = 3.0,
     dotUrgentSeconds = 1.5, -- Iron Jaws pre-empts proc GCDs when a DoT is this close to falling off
