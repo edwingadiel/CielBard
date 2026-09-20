@@ -10,7 +10,9 @@ The release zip mirrors the `LuaMods` folder. Unzip it **into your MMOMinion `Lu
 
 ```
 LuaMods\CielBard\        (3 .lua files + module.def)
-LuaMods\CielMachinistLuaMods\CielDancerLuaMods\ACR\CombatRoutines\CielBard.lua
+LuaMods\CielMachinist\
+LuaMods\CielDancer\
+LuaMods\ACR\CombatRoutines\CielBard.lua
 LuaMods\ACR\CombatRoutines\CielMachinist.lua
 LuaMods\ACR\CombatRoutines\CielDancer.lua
 ```
