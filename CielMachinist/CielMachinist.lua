@@ -351,6 +351,35 @@ local function drawLockToolNotice(config)
     GUI:Separator()
 end
 
+-- Smart hold: one switch shared by every Ciel module (CielShared.hold).
+local HOLD_TEXT = "Barrel Stabilizer, Wildfire and the potion wait. Tools and the combo continue; heat, battery, Reassemble and Double Check / Checkmate are only spent at their caps. A burst that is already running finishes."
+
+local function holdLabel()
+    if CielMachinistEngine.HoldActive() then
+        return string.format("HOLDING BURST  %.0fs  -  click to release", CielMachinistEngine.HoldSeconds())
+    end
+    return "Hold burst"
+end
+
+local function drawHoldControls(config)
+    if GUI:Button(holdLabel() .. "##cielmach-hold", 300, 28) then CielMachinistEngine.ToggleHold() end
+    if CielMachinistEngine.HoldActive() then GUI:TextWrapped(HOLD_TEXT) end
+end
+
+-- A small always-available button, because the main window is usually closed
+-- mid-fight. Drawn only while this module's job is being played.
+function CielMachinist.DrawHoldButton()
+    local config = settings()
+    if config.showHoldButton == false then return end
+    if not Player or Player.job ~= CielMachinistData.MachinistJobID then return end
+    GUI:SetNextWindowSize(330, 70, GUI.SetCond_FirstUseEver)
+    local visible = GUI:Begin("Ciel Hold##cielmach-holdwindow", true)
+    if visible then
+        if GUI:Button(holdLabel() .. "##cielmach-holdmini", 310, 30) then CielMachinistEngine.ToggleHold() end
+    end
+    GUI:End()
+end
+
 -- Window ---------------------------------------------------------------------------------
 
 local function chargeText(state)
@@ -368,6 +397,7 @@ function CielMachinist.DrawWindow()
     if config.showWindow ~= CielMachinist.windowOpen then config.showWindow = CielMachinist.windowOpen markDirty() end
     if visible then
         drawLockToolNotice(config)
+        drawHoldControls(config)
         if drivenByACR() then
             GUI:TextWrapped("Driven by ACR: the ACR Enabled toggle starts and stops the rotation. Remove LuaMods/ACR/CombatRoutines/CielMachinist.lua to run standalone.")
         else
@@ -512,6 +542,14 @@ function CielMachinist.DrawWindow()
             for _, warning in ipairs(warnings) do GUI:TextWrapped("- " .. warning) end
         end
 
+        if GUI:CollapsingHeader("Hold burst") then
+            GUI:TextWrapped(HOLD_TEXT)
+            GUI:TextWrapped("The hold is shared by every Ciel module and is never saved: it is off after a reload.")
+            checkbox("Show the floating hold button", "showHoldButton")
+            checkbox("Release the hold when combat ends", "holdClearsOnCombatEnd")
+            sliderInt("Release the hold automatically after (s, 0 = never)", "holdAutoReleaseSeconds", 0, 180)
+        end
+
         if GUI:CollapsingHeader("Better weaving (optional tools)") then
             GUI:TextWrapped(LOCK_TOOL_TEXT)
             GUI:TextWrapped("Machinist weaves once inside every 1.5 s Overheated weaponskill, so it gains more from a shorter animation lock than most jobs. Both tools stay above the real server lock.")
@@ -554,6 +592,9 @@ end
 
 function CielMachinist.Draw()
     if not CielMachinist.initialized then return end
+    -- The floating hold button is drawn from here in every mode: this handler
+    -- runs each frame whether or not ACR owns the rotation window.
+    CielMachinist.DrawHoldButton()
     if drivenByACR() then return end -- ACR draws the window through the profile
     if not CielMachinist.windowOpen then return end
     CielMachinist.DrawWindow()

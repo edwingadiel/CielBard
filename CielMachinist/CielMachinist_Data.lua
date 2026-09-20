@@ -1,8 +1,12 @@
 CielMachinistData = CielMachinistData or {}
 
-CielMachinistData.Version = "0.2.1"
+CielMachinistData.Version = "0.3.0"
 CielMachinistData.MachinistJobID = 31
 CielMachinistData.ACRProfileName = "CielMachinist"
+
+-- Shared by every Ciel module: one hold switch for whichever job is being
+-- played. Runtime only, never saved, so a forgotten hold cannot outlive a reload.
+CielShared = CielShared or { hold = false, holdAt = 0 }
 
 -- FFXIV action IDs. ActionList resolves availability, level sync, transformed
 -- actions, cooldowns, and proc requirements at runtime. Upgraded actions are
@@ -183,6 +187,15 @@ CielMachinistData.Defaults = {
     idealKillMax = 30,
     terminalDumping = true,
     resourcePooling = true,
+
+    -- Smart hold (the HOLD BURST toggle). While it is on the two-minute burst
+    -- is not started and the potion is kept; everything that would otherwise
+    -- be lost keeps running, and resources are pooled for the release and only
+    -- spent to stay under their caps. A burst that is already running finishes.
+    holdAutoReleaseSeconds = 0, -- 0 = hold until released
+    holdClearsOnCombatEnd = true,
+    showHoldButton = true,
+    holdHeat = 90, -- while holding, Hypercharge only from this much heat
 
     -- Hypercharge is refused while any enabled tool would come off cooldown
     -- inside the Overheated window (five 1.5 s weaponskills plus the queue).

@@ -2,7 +2,7 @@
 
 Experimental level-100 Machinist rotation module for FFXIVMinion/MMOMinion, built on the same engine design as CielBard: a GCD-first priority engine with a central Auto/Off capability layer, kill-time awareness, a pending-request guard, and an ACR profile.
 
-Version 0.2.1 has been run on a live training dummy (2026-09-19) and behaved correctly; it has not been validated in duties. Execution is disabled by default.
+Version 0.3.0 adds the shared **Hold burst** switch. Version 0.2.1 has been run on a live training dummy (2026-09-19) and behaved correctly; it has not been validated in duties. Execution is disabled by default.
 
 ## Install
 
@@ -36,6 +36,8 @@ The GCD is held for up to 0.4 s when Air Anchor or Chain Saw is about to come ba
 - One weave after a 1.5 s weaponskill, two after a 2.5 s one.
 
 - **Heat pooling** for a second, heat-funded Hypercharge inside the two-minute burst is available under *Rotation tuning* ("Heat kept for a second burst Hypercharge", try 45) and ships **off**: the simulator measures it as a small loss on average. See `sim_mch/output/FINDINGS.md`.
+
+- **Hold burst.** While it is on, Barrel Stabilizer, Wildfire and the potion wait. Drill, Air Anchor, Chain Saw, Excavator and the combo carry on (they would drift otherwise); heat is only spent from 90, the battery only at 100, and Reassemble and Double Check / Checkmate only before a charge would cap, so everything is banked for the release. The switch is shared by all three Ciel modules, shows up as a **Hold burst** button at the top of the window and as a small floating **Ciel Hold** window you can leave open mid-fight, releases itself when combat ends (and optionally after a number of seconds), and is never saved: it is always off after a reload. A burst whose buffs are already running is finished, not abandoned.
 
 Not implemented: Flamethrower, Dismantle, Head Graze, and encounter-specific logic.
 

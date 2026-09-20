@@ -6,6 +6,7 @@
   "StandardFinish":      { "id": 1821 },
   "TechnicalFinish":     { "id": 1822 },
   "ClosedPosition":      { "id": 1823 },
+  "DancePartner":        { "id": 1824 },
   "Devilment":           { "id": 1825 },
   "EspritStandard":      { "id": 1847 },
   "EspritTechnical":     { "id": 1848 },

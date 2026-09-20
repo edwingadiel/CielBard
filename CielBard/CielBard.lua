@@ -376,6 +376,35 @@ local function drawLockToolNotice(config)
     GUI:Separator()
 end
 
+-- Smart hold: one switch shared by every Ciel module (CielShared.hold).
+local HOLD_TEXT = "Raging Strikes, Battle Voice, Radiant Finale and the potion wait. Songs, DoTs and Empyreal Arrow continue; Soul Voice and charges are only spent at their caps. A burst that is already running finishes."
+
+local function holdLabel()
+    if CielBardEngine.HoldActive() then
+        return string.format("HOLDING BURST  %.0fs  -  click to release", CielBardEngine.HoldSeconds())
+    end
+    return "Hold burst"
+end
+
+local function drawHoldControls(config)
+    if GUI:Button(holdLabel() .. "##cielbard-hold", 300, 28) then CielBardEngine.ToggleHold() end
+    if CielBardEngine.HoldActive() then GUI:TextWrapped(HOLD_TEXT) end
+end
+
+-- A small always-available button, because the main window is usually closed
+-- mid-fight. Drawn only while this module's job is being played.
+function CielBard.DrawHoldButton()
+    local config = settings()
+    if config.showHoldButton == false then return end
+    if not Player or Player.job ~= CielBardData.BardJobID then return end
+    GUI:SetNextWindowSize(330, 70, GUI.SetCond_FirstUseEver)
+    local visible = GUI:Begin("Ciel Hold##cielbard-holdwindow", true)
+    if visible then
+        if GUI:Button(holdLabel() .. "##cielbard-holdmini", 310, 30) then CielBardEngine.ToggleHold() end
+    end
+    GUI:End()
+end
+
 -- Window ---------------------------------------------------------------------------------
 
 function CielBard.DrawWindow()
@@ -386,6 +415,7 @@ function CielBard.DrawWindow()
     if config.showWindow ~= CielBard.windowOpen then config.showWindow = CielBard.windowOpen markDirty() end
     if visible then
         drawLockToolNotice(config)
+        drawHoldControls(config)
         if drivenByACR() then
             GUI:TextWrapped("Driven by ACR: the ACR Enabled toggle starts and stops the rotation. Remove LuaMods/ACR/CombatRoutines/CielBard.lua to run standalone.")
         else
@@ -537,6 +567,14 @@ function CielBard.DrawWindow()
             for _, warning in ipairs(warnings) do GUI:TextWrapped("- " .. warning) end
         end
 
+        if GUI:CollapsingHeader("Hold burst") then
+            GUI:TextWrapped(HOLD_TEXT)
+            GUI:TextWrapped("The hold is shared by every Ciel module and is never saved: it is off after a reload.")
+            checkbox("Show the floating hold button", "showHoldButton")
+            checkbox("Release the hold when combat ends", "holdClearsOnCombatEnd")
+            sliderInt("Release the hold automatically after (s, 0 = never)", "holdAutoReleaseSeconds", 0, 180)
+        end
+
         if GUI:CollapsingHeader("Better weaving (optional tools)") then
             GUI:TextWrapped(LOCK_TOOL_TEXT)
             GUI:TextWrapped("Measured on a striking dummy, oGCD-to-oGCD gaps drop by roughly your round-trip time. Both tools stay above the real server lock.")
@@ -581,6 +619,9 @@ end
 
 function CielBard.Draw()
     if not CielBard.initialized then return end
+    -- The floating hold button is drawn from here in every mode: this handler
+    -- runs each frame whether or not ACR owns the rotation window.
+    CielBard.DrawHoldButton()
     if drivenByACR() then return end -- ACR draws the window through the profile
     if not CielBard.windowOpen then return end
     CielBard.DrawWindow()

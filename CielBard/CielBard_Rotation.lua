@@ -347,6 +347,51 @@ local function songSwapThreshold(key)
     return tonumber(thresholds[key]) or 1
 end
 
+-- Smart hold --------------------------------------------------------------------------
+-- One switch shared by all Ciel modules (CielShared.hold). Fights often need
+-- the burst delayed: the boss is about to leave, the party is waiting on a
+-- mechanic. Holding stops the two-minute burst from *starting* and keeps the
+-- potion; it never stops the GCD, never lets a cooldown weaponskill, a DoT or a
+-- proc go to waste, and spends pooled resources only to stay under their caps.
+-- A burst whose buffs are already running is finished, not abandoned.
+
+function E.HoldActive()
+    local shared = CielShared
+    if not shared or not shared.hold then return false end
+    local limit = tonumber((E.config or D.Defaults).holdAutoReleaseSeconds) or 0
+    if limit > 0 and (now() - (shared.holdAt or 0)) / 1000 >= limit then
+        shared.hold = false
+        return false
+    end
+    return true
+end
+
+function E.SetHold(value)
+    CielShared.hold = value == true
+    CielShared.holdAt = now()
+end
+
+function E.ToggleHold()
+    E.SetHold(not E.HoldActive())
+end
+
+-- Seconds the hold has been on, for the window.
+function E.HoldSeconds()
+    if not E.HoldActive() then return 0 end
+    return (now() - (CielShared.holdAt or 0)) / 1000
+end
+
+-- A wipe or a kill ends the reason for holding.
+local function trackCombatForHold()
+    local s, c = E.state, E.config
+    if Player.incombat then
+        s.wasInCombat = true
+    elseif s.wasInCombat then
+        s.wasInCombat = false
+        if c.holdClearsOnCombatEnd ~= false and CielShared then CielShared.hold = false end
+    end
+end
+
 function E.Init(config)
     E.config = config
     E.ResetCombat("Initialized")
@@ -825,6 +870,7 @@ function E.BuildContext(target)
         burstElapsed = burstElapsed,
         burstActive = burstActive,
         burstConfigured = burstConfigured,
+        hold = E.HoldActive() and not burstActive,
         dotsReady = stormOn and causticOn,
         oneDotReady = not anyDotEnabled or anyDotOn,
         ttkBand = band,
@@ -926,6 +972,8 @@ function E.TryGCD(ctx)
             ctx.nextBurst <= c.apexHoldForBurstSeconds and ctx.soulVoice < 95 then
             shouldApex = false
         end
+        -- Holding: Soul Voice is kept for the release and only spent at the cap.
+        if ctx.hold and not ctx.terminal and ctx.soulVoice < 95 then shouldApex = false end
         if shouldApex and E.TryCast(A.ApexArrow, target,
             "Apex Arrow at " .. tostring(ctx.soulVoice) .. " gauge") then return true end
     end
@@ -1082,7 +1130,7 @@ function E.TryOGCD(ctx)
     local songReady = ctx.song == "WM" or ctx.terminal or ctx.idealFinish or
         not c.automaticSongCycle or not E.AbilityEnabled("WanderersMinuet")
     local burstStartable = ctx.burstConfigured and ctx.nextBurst <= 0.1 and songReady and
-        E.BurstDotGateSatisfied(ctx)
+        E.BurstDotGateSatisfied(ctx) and not ctx.hold
     if burstStartable then
         -- The potion goes into the same weave window immediately before
         -- Raging Strikes so its 30 seconds cover the whole buff package.
@@ -1094,7 +1142,7 @@ function E.TryOGCD(ctx)
     -- potion also gets the first weave slots of the active window.
     if potionWanted(ctx) and ctx.burstActive and ctx.burstElapsed <= 5 and
         E.TryPotion(ctx, "Potion in burst window: " .. tostring(s.potionName)) then return true end
-    if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and
+    if potionWanted(ctx) and not c.potionOnlyWithBurst and not ctx.burstActive and not ctx.hold and
         E.TryPotion(ctx, "Potion on cooldown: " .. tostring(s.potionName)) then return true end
 
     if ctx.burstActive then
@@ -1132,6 +1180,11 @@ function E.TryOGCD(ctx)
         if pooling and E.state.chargeInfo and E.state.charges >= (E.state.maxCharges or 3) and
             ctx.nextBurst > (tonumber(c.chargeRechargeSeconds) or 15) then spend = true end
         if not E.state.chargeInfo then spend = true end -- no charge data: never hold
+        -- Holding: the stack is kept for the release and only spent before it caps.
+        if ctx.hold then
+            pooling = true
+            spend = chargeAboutToCap(ctx)
+        end
         if spend and tryCharge(ctx, pooling and "Heartbreak Shot at 3 (recharges before burst)"
                 or (ctx.aoe and "Rain of Death on cooldown" or "Heartbreak Shot on cooldown")) then return true end
 
@@ -1168,6 +1221,7 @@ function E.Step(viaACR)
     s.lastPulse = ticks
 
     if not Player or not Player.alive or Player.job ~= D.BardJobID then s.lastDecision = "Requires Bard" return false end
+    trackCombatForHold()
     if type(MIsLoading) == "function" and MIsLoading() then return false end
     if type(MIsLocked) == "function" and MIsLocked() then return false end
     if type(MIsCasting) == "function" and MIsCasting() then return false end

@@ -36,17 +36,17 @@ if str(ROOT) not in sys.path:
 
 LUA_SHA256 = {
     "CielBard/CielBard_Rotation.lua":
-        "82ee8345a7ecef1e6826c3f95550568f1a87689247107b199b98e30c0d6d4129",
+        "b54bd5cd6f128a312b7a4026782391c7302cdeef699e51c59c6bd0cca108042c",
     "CielBard/CielBard_Data.lua":
-        "5b90cad69a90dd5ab0139fe73b98085283d8c7661457cc4f40ee937adfd1ee86",
+        "98d1ad9b7f934a6ccab1f5b3ff0473695ef545a052b21cd82adf6b3bd256322d",
 }
 # Same files with CRLF collapsed to LF, so a checkout with a different core.autocrlf
 # setting does not read as a tampered engine.
 LUA_SHA256_LF = {
     "CielBard/CielBard_Rotation.lua":
-        "7bf51bc90fe5c0b8f84a58ecc5a11cf9fd297949700f3a544470e35eed5a624b",
+        "c868a46a6c5a2d827a8cb56a5b1f455352d88a11ae03e6a01f1d84ce34f7ed19",
     "CielBard/CielBard_Data.lua":
-        "5b784dfab42a5169f490622cd942159b7693331a322663dc2ef09489dcc0a7f7",
+        "f0daef3133098740f345d8550c5736a4d0ebddcab8e9a6af0e52078120baf520",
 }
 
 ENGINE_CHANGED = "the engine changed - re-baseline deliberately"
